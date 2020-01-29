@@ -1,0 +1,18 @@
+
+<p class="proj-header">Suggested Projects</p>
+<div class="projects">
+<ul id="menu">
+      <div class="slideshow-container">
+
+            <div class="mySlides fade"> 
+            <a class="next" (click)="prev()">&#10094;</a>
+              <img id="sideimg" [src]="imgPath" class="imageStyle">
+            <a class="prev" (click)="next()">&#10095;</a>
+           </div> 
+          
+           
+     </div>
+     <div class="numbertext">{{i+1}} / {{ imageResp.length }}</div>
+
+</ul>
+</div>

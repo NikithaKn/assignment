@@ -1,0 +1,191 @@
+.smartAdminLogo{
+    width: 170px;
+    height: 35px;
+}
+.fedexImage{
+    height: 25px ;
+    width: 80px;
+    position: absolute;
+    right: 0;
+    top: 5px;
+}
+.staticNavbar{
+  background: #f2f2f2;
+  display: -webkit-flex;
+}
+.navbar-title{
+  background:#4d148c;
+  height: 47px;
+}
+.navbar-nav{
+    display: -webkit-inline-box;
+    margin-top: 50px;
+  
+}
+
+.rowmargin{
+    margin-right: 0;
+    margin-left: 0;
+}
+
+.navbar-title li a {
+    background: #4d138b;
+    margin-right: 25px;
+    margin-right: 10px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+ .navbar-nav>.open>a, .navbar-nav>.open>a:focus, .navbar-nav>.open>a:hover
+	{
+	color: #4d2a83 !important;
+    background-color: rgb(244, 244, 244);
+    padding: 15px;
+    cursor: pointer;
+}
+
+.navbar{
+    padding: 0;
+    border-radius: 0px;
+    min-height: 20px;
+    height: 30%;
+}
+
+.navbar-nav .dropdown-menu {
+    position: absolute;
+    color: white;
+    line-height: 5px;
+   
+}
+
+.navDropdown{
+    left: auto;
+}
+
+
+ .navbar-nav>li>a:focus, .navbar-nav>li>a:hover
+	{
+    color: #4d2a83 !important;
+    background-color: rgb(244, 244, 244);
+    font-weight: 600;
+    padding: 15px;
+    font-family: sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+   
+}
+.navbar-nav>li>.dropdown-menu {
+    margin-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    font-size: 14px;
+    font-weight: 400;
+    
+}
+
+ .navbar-nav>li>a {
+    color:white !important;
+	transition: background 0.5s;
+	font-size: 13px;
+    font-weight: 600;
+    padding: 15px;
+    font-family: sans-serif;
+
+   
+}
+.nav>li>a {
+    position: relative;
+    display: block;
+    padding: 15px;
+}
+
+.dropdown-menu {
+    left: none;
+}
+
+.navbar-nav>li>a {
+    line-height: 5px;
+    text-decoration: none;
+    
+}
+.dropdown:hover .dropdown-menu {
+    display: block;
+    left: -1px;
+}
+
+.dropdown-menu>li>a {
+    display: block;
+    padding: 3px 17.5px;
+    clear: both;
+    background: none;
+    line-height: 1.42857143;
+    color: #4d148C !important;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background 0.3s;
+    cursor: pointer;
+}
+
+.navbar-default .navbar-nav>li>a:hover,focus {
+	color: #dce9ed;
+	background-color: transparent;
+	display: block;
+	transition: background 0.5s;
+}
+
+.dropdown-menu{
+    left:none !important;
+}
+.bellSize{
+    font-size: 21px;
+    top: 4px !important;
+    float: right;
+    margin-right: -2px;
+}
+
+.oval{
+    position: absolute;
+    color: white;
+    background: #4D148C;
+    padding: 3px 5px;
+    height: 35px;
+    top: 6px;
+    cursor: pointer;
+    float: right;
+    right: 196px;
+}
+.navbar-right {
+    margin: auto;
+}
+
+.signOut{
+    margin-right: 18px;
+}
+
+@media screen and (min-width:900px) and (max-width:1100px){
+    .navbar-nav>li>a , .navbar-nav>li>a:focus, .navbar-nav>li>a:hover ,
+    .navbar-nav>.open>a, .navbar-nav>.open>a:focus, .navbar-nav>.open>a:hover
+       {
+        padding: 13px 5px;
+        font-size: 12px ;
+    }
+}
+
+@media screen and (min-width:500px) and (max-width:800px){
+    .navbar-nav>li>a , .navbar-nav>li>a:focus, .navbar-nav>li>a:hover ,
+    .navbar-nav>.open>a, .navbar-nav>.open>a:focus, .navbar-nav>.open>a:hover
+       {
+        padding: 11px 4px;
+        font-size: 8px !important
+       }
+     .navbar {
+        max-height: 40px;
+      }
+     .oval{
+        top: 1px;
+      }
+    .signOut{
+       margin-right: 0px;
+      }
+}

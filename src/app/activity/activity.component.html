@@ -1,0 +1,24 @@
+<div class="activity">
+    <div class="recentlist">
+        <p>Activity</p>
+        <li id="list" *ngFor = "let data of listData">
+           <div class="recentActivity">
+               <p class="name"></p>
+               <p class="title">{{data.title}}</p>
+               <button class="approve">Approve</button>
+               <button class="reject">Reject</button>
+           </div>
+        </li>
+    </div>
+    <div class="performers">
+        <p>Performers</p>
+        <li id="list" *ngFor = "let data of listData">
+                <div class="recentActivity">
+                    <p class="name"></p>
+                    <p class="title">{{data.title}}</p>
+                    <button class="approve">Approve</button>
+                    <button class="reject">Reject</button>
+                </div>
+             </li>
+    </div>
+</div>
