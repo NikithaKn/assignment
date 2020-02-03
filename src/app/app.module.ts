@@ -9,12 +9,15 @@ import { HttpClientModule } from '@angular/common/http'
 import { SuggestedProjComponent } from './suggested-proj/suggested-proj.component';
 import { ProjService } from '../services/proj.service';
 import { ActivityComponent } from './activity/activity.component';
+import { ChartsModule } from 'ng2-charts';
+import { ChartComponent } from './chart/chart.component';
 
 @NgModule({
   declarations: [
     AppComponent,
     SuggestedProjComponent,
-    ActivityComponent
+    ActivityComponent,
+    ChartComponent
   ],
   imports: [
     BrowserModule,
@@ -22,7 +25,8 @@ import { ActivityComponent } from './activity/activity.component';
     BrowserAnimationsModule,
     MatMenuModule ,
     MatMenuModule,
-    HttpClientModule
+    HttpClientModule,
+    ChartsModule
   ],
   providers: [ProjService],
   bootstrap: [AppComponent]
