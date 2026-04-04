@@ -39,6 +39,9 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       # 🔹 Get latest tag
       - name: Get latest tag
         id: get_tag
@@ -52,7 +55,7 @@ jobs:
 
           echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
 
-      # 🔹 Always patch bump (simplified)
+      # 🔹 Always patch bump
       - name: Bump version
         id: bump
         run: |
@@ -66,7 +69,7 @@ jobs:
           new_tag="v$major.$minor.$patch"
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
-      # 🔹 Prevent duplicate
+      # 🔹 Prevent duplicate tags
       - name: Check if tag exists
         run: |
           git rev-parse ${{ steps.bump.outputs.new_tag }} >/dev/null 2>&1 && {
@@ -80,7 +83,6 @@ jobs:
         run: |
           PRS=$(git log -10 --pretty=format:"%s")
 
-          # Extract JIRA tickets like ABC-123
           JIRA=$(echo "$PRS" | grep -oE '[A-Z]+-[0-9]+' | sort | uniq)
 
           echo "prs<<EOF" >> $GITHUB_OUTPUT
@@ -97,55 +99,52 @@ jobs:
           git tag -a ${{ steps.bump.outputs.new_tag }} -m "Release ${{ steps.bump.outputs.new_tag }}"
           git push origin ${{ steps.bump.outputs.new_tag }}
 
-      # 🔹 Install jq (for JSON parsing)
-      - name: Install jq
-        run: sudo apt-get install -y jq
+      # 🔹 Update Confluence (FIXED)
+      - name: Update Confluence Page
+        env:
+          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          PAGE_ID: ${{ github.event.inputs.page_id }}
+          TAG: ${{ steps.bump.outputs.new_tag }}
+          PRS: ${{ steps.pr_details.outputs.prs }}
+          JIRA: ${{ steps.pr_details.outputs.jira }}
+        run: |
+          echo "Fetching page..."
 
-    - name: Update Confluence Page
-  env:
-    EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
-    API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
-    BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
-    PAGE_ID: ${{ github.event.inputs.page_id }}
-    TAG: ${{ steps.bump.outputs.new_tag }}
-    PRS: ${{ steps.pr_details.outputs.prs }}
-    JIRA: ${{ steps.pr_details.outputs.jira }}
-  run: |
-    echo "Fetching page..."
+          response=$(curl -s -u $EMAIL:$API_TOKEN \
+            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
 
-    response=$(curl -s -u $EMAIL:$API_TOKEN \
-      -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+          current_version=$(echo $response | jq '.version.number')
+          new_version=$((current_version + 1))
 
-    current_version=$(echo $response | jq '.version.number')
-    new_version=$((current_version + 1))
+          current_body=$(echo $response | jq -r '.body.storage.value')
 
-    current_body=$(echo $response | jq -r '.body.storage.value')
+          new_entry="<h3>Release $TAG</h3>
+          <p><b>Date:</b> $(date)</p>
+          <p><b>PRs:</b><br/>$PRS</p>
+          <p><b>JIRA:</b><br/>$JIRA</p>
+          <hr/>"
 
-    new_entry="<h3>Release $TAG</h3>
-    <p><b>Date:</b> $(date)</p>
-    <p><b>PRs:</b><br/>$PRS</p>
-    <p><b>JIRA:</b><br/>$JIRA</p>
-    <hr/>"
+          updated_body="$new_entry$current_body"
 
-    updated_body="$new_entry$current_body"
+          # ✅ CRITICAL FIX: escape HTML for JSON
+          escaped_body=$(echo "$updated_body" | jq -Rs .)
 
-    # ✅ THIS IS THE FIX (escape content)
-    escaped_body=$(echo "$updated_body" | jq -Rs .)
+          echo "Updating Confluence page..."
 
-    echo "Updating page..."
-
-    curl -v -u $EMAIL:$API_TOKEN \
-      -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-      -H "Content-Type: application/json" \
-      -d "{
-        \"id\": \"$PAGE_ID\",
-        \"type\": \"page\",
-        \"title\": \"Release notes\",
-        \"version\": {\"number\": $new_version},
-        \"body\": {
-          \"storage\": {
-            \"value\": $escaped_body,
-            \"representation\": \"storage\"
-          }
-        }
-      }"
+          curl -v -u $EMAIL:$API_TOKEN \
+            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"id\": \"$PAGE_ID\",
+              \"type\": \"page\",
+              \"title\": \"Release notes\",
+              \"version\": {\"number\": $new_version},
+              \"body\": {
+                \"storage\": {
+                  \"value\": $escaped_body,
+                  \"representation\": \"storage\"
+                }
+              }
+            }"
