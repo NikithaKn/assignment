@@ -1,4 +1,4 @@
-name: Tag on PR Label or Manual
+name: Tag + Update Confluence
 
 on:
   pull_request:
@@ -10,15 +10,9 @@ on:
         description: "Base branch to tag from"
         required: true
         default: "main"
-      bump_type:
-        description: "Version bump type"
+      page_id:
+        description: "Confluence Page ID"
         required: true
-        default: "patch"
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
 
 jobs:
   tag_on_label:
@@ -35,7 +29,6 @@ jobs:
           ref: ${{ github.event.inputs.base_branch || 'main' }}
           fetch-depth: 0
 
-      # ✅ Node.js FIX (important)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -46,6 +39,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
+      # 🔹 Get latest tag
       - name: Get latest tag
         id: get_tag
         run: |
@@ -58,38 +52,94 @@ jobs:
 
           echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
 
+      # 🔹 Always patch bump (simplified)
       - name: Bump version
         id: bump
         run: |
           tag=${{ steps.get_tag.outputs.latest_tag }}
-          bump_type="${{ github.event.inputs.bump_type || 'patch' }}"
 
           version=${tag#v}
           IFS='.' read -r major minor patch <<< "$version"
 
-          if [ "$bump_type" = "major" ]; then
-            major=$((major+1))
-            minor=0
-            patch=0
-          elif [ "$bump_type" = "minor" ]; then
-            minor=$((minor+1))
-            patch=0
-          else
-            patch=$((patch+1))
-          fi
+          patch=$((patch+1))
 
           new_tag="v$major.$minor.$patch"
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
-      # ✅ Prevent duplicate tags (extra safety)
+      # 🔹 Prevent duplicate
       - name: Check if tag exists
         run: |
           git rev-parse ${{ steps.bump.outputs.new_tag }} >/dev/null 2>&1 && {
             echo "Tag already exists!"
             exit 1
-          } || echo "Tag does not exist, continuing..."
+          } || echo "Tag does not exist"
 
+      # 🔹 Collect PR + JIRA details
+      - name: Collect PR details
+        id: pr_details
+        run: |
+          PRS=$(git log -10 --pretty=format:"%s")
+
+          # Extract JIRA tickets like ABC-123
+          JIRA=$(echo "$PRS" | grep -oE '[A-Z]+-[0-9]+' | sort | uniq)
+
+          echo "prs<<EOF" >> $GITHUB_OUTPUT
+          echo "$PRS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "jira<<EOF" >> $GITHUB_OUTPUT
+          echo "$JIRA" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # 🔹 Create tag
       - name: Create and push tag
         run: |
           git tag -a ${{ steps.bump.outputs.new_tag }} -m "Release ${{ steps.bump.outputs.new_tag }}"
           git push origin ${{ steps.bump.outputs.new_tag }}
+
+      # 🔹 Install jq (for JSON parsing)
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      # 🔹 Update Confluence
+      - name: Update Confluence Page
+        env:
+          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          PAGE_ID: ${{ github.event.inputs.page_id }}
+          TAG: ${{ steps.bump.outputs.new_tag }}
+          PRS: ${{ steps.pr_details.outputs.prs }}
+          JIRA: ${{ steps.pr_details.outputs.jira }}
+        run: |
+          response=$(curl -s -u $EMAIL:$API_TOKEN \
+            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+
+          current_version=$(echo $response | jq '.version.number')
+          new_version=$((current_version + 1))
+
+          current_body=$(echo $response | jq -r '.body.storage.value')
+
+          new_entry="<h3>Release $TAG</h3>
+          <p><b>Date:</b> $(date)</p>
+          <p><b>PRs:</b><br/>$PRS</p>
+          <p><b>JIRA:</b><br/>$JIRA</p>
+          <hr/>"
+
+          updated_body="$new_entry$current_body"
+
+          curl -s -u $EMAIL:$API_TOKEN \
+            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"id\": \"$PAGE_ID\",
+              \"type\": \"page\",
+              \"title\": \"Release notes\",
+              \"version\": {\"number\": $new_version},
+              \"body\": {
+                \"storage\": {
+                  \"value\": \"$updated_body\",
+                  \"representation\": \"storage\"
+                }
+              }
+            }"
