@@ -101,45 +101,51 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      # 🔹 Update Confluence
-      - name: Update Confluence Page
-        env:
-          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
-          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
-          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
-          PAGE_ID: ${{ github.event.inputs.page_id }}
-          TAG: ${{ steps.bump.outputs.new_tag }}
-          PRS: ${{ steps.pr_details.outputs.prs }}
-          JIRA: ${{ steps.pr_details.outputs.jira }}
-        run: |
-          response=$(curl -s -u $EMAIL:$API_TOKEN \
-            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+    - name: Update Confluence Page
+  env:
+    EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+    API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+    BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+    PAGE_ID: ${{ github.event.inputs.page_id }}
+    TAG: ${{ steps.bump.outputs.new_tag }}
+    PRS: ${{ steps.pr_details.outputs.prs }}
+    JIRA: ${{ steps.pr_details.outputs.jira }}
+  run: |
+    echo "Fetching page..."
 
-          current_version=$(echo $response | jq '.version.number')
-          new_version=$((current_version + 1))
+    response=$(curl -s -u $EMAIL:$API_TOKEN \
+      -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
 
-          current_body=$(echo $response | jq -r '.body.storage.value')
+    current_version=$(echo $response | jq '.version.number')
+    new_version=$((current_version + 1))
 
-          new_entry="<h3>Release $TAG</h3>
-          <p><b>Date:</b> $(date)</p>
-          <p><b>PRs:</b><br/>$PRS</p>
-          <p><b>JIRA:</b><br/>$JIRA</p>
-          <hr/>"
+    current_body=$(echo $response | jq -r '.body.storage.value')
 
-          updated_body="$new_entry$current_body"
+    new_entry="<h3>Release $TAG</h3>
+    <p><b>Date:</b> $(date)</p>
+    <p><b>PRs:</b><br/>$PRS</p>
+    <p><b>JIRA:</b><br/>$JIRA</p>
+    <hr/>"
 
-          curl -s -u $EMAIL:$API_TOKEN \
-            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"id\": \"$PAGE_ID\",
-              \"type\": \"page\",
-              \"title\": \"Release notes\",
-              \"version\": {\"number\": $new_version},
-              \"body\": {
-                \"storage\": {
-                  \"value\": \"$updated_body\",
-                  \"representation\": \"storage\"
-                }
-              }
-            }"
+    updated_body="$new_entry$current_body"
+
+    # ✅ THIS IS THE FIX (escape content)
+    escaped_body=$(echo "$updated_body" | jq -Rs .)
+
+    echo "Updating page..."
+
+    curl -v -u $EMAIL:$API_TOKEN \
+      -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"id\": \"$PAGE_ID\",
+        \"type\": \"page\",
+        \"title\": \"Release notes\",
+        \"version\": {\"number\": $new_version},
+        \"body\": {
+          \"storage\": {
+            \"value\": $escaped_body,
+            \"representation\": \"storage\"
+          }
+        }
+      }"
