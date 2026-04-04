@@ -10,12 +10,18 @@ on:
         description: "Base branch to tag from"
         required: true
         default: "main"
+      bump_type:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   tag_on_label:
-    # Run if:
-    # 1. PR has tagcut label OR
-    # 2. Manually triggered
     if: |
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'tagcut')
@@ -26,20 +32,64 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.base_branch || github.event.pull_request.head.ref }}
+          ref: ${{ github.event.inputs.base_branch || 'main' }}
+          fetch-depth: 0
+
+      # ✅ Node.js FIX (important)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Set up Git
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-      - name: Generate tag name
-        id: tagger
+      - name: Get latest tag
+        id: get_tag
         run: |
-          TAG_NAME="manual-${{ github.run_number }}-$(date +'%Y%m%d%H%M%S')"
-          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          git fetch --tags
+          latest_tag=$(git tag --sort=-v:refname | head -n 1)
+
+          if [ -z "$latest_tag" ]; then
+            latest_tag="v0.0.0"
+          fi
+
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+
+      - name: Bump version
+        id: bump
+        run: |
+          tag=${{ steps.get_tag.outputs.latest_tag }}
+          bump_type="${{ github.event.inputs.bump_type || 'patch' }}"
+
+          version=${tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+
+          if [ "$bump_type" = "major" ]; then
+            major=$((major+1))
+            minor=0
+            patch=0
+          elif [ "$bump_type" = "minor" ]; then
+            minor=$((minor+1))
+            patch=0
+          else
+            patch=$((patch+1))
+          fi
+
+          new_tag="v$major.$minor.$patch"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+      # ✅ Prevent duplicate tags (extra safety)
+      - name: Check if tag exists
+        run: |
+          git rev-parse ${{ steps.bump.outputs.new_tag }} >/dev/null 2>&1 && {
+            echo "Tag already exists!"
+            exit 1
+          } || echo "Tag does not exist, continuing..."
 
       - name: Create and push tag
         run: |
-          git tag ${{ steps.tagger.outputs.tag }}
-          git push origin ${{ steps.tagger.outputs.tag }}
+          git tag -a ${{ steps.bump.outputs.new_tag }} -m "Release ${{ steps.bump.outputs.new_tag }}"
+          git push origin ${{ steps.bump.outputs.new_tag }}
