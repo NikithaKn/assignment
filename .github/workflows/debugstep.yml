@@ -1,0 +1,7 @@
+name: "Debug Confluence API"
+    run: |
+      echo "Testing Confluence API..."
+
+      curl -v -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+        -H "Accept: application/json" \
+        "$CONFLUENCE_BASE_URL/rest/api/content/${{ github.event.inputs.confluence_page_id }}?expand=version"
