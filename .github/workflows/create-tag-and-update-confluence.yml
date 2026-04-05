@@ -1,13 +1,10 @@
-name: Cut Tag from Sprint Branch & Update Confluence
+name: Auto Tag from Sprint Branch & Update Confluence
 
 on:
   workflow_dispatch:
     inputs:
       sprint_branch:
         description: 'Enter sprint branch (example: 26.sprint.x)'
-        required: true
-      tag_version:
-        description: 'Enter tag version (example: v26.1)'
         required: true
       confluence_page_id:
         description: 'Enter Confluence Page ID'
@@ -43,24 +40,51 @@ jobs:
         run: |
           git checkout ${{ github.event.inputs.sprint_branch }}
 
-      - name: Get last tag on this branch
-        id: last_tag
+      - name: Extract sprint prefix
+        id: sprint
         run: |
-          LAST_TAG=$(git tag --merged HEAD --sort=-v:refname | head -n 1)
-          echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
-          echo "Last tag: $LAST_TAG"
+          BRANCH=${{ github.event.inputs.sprint_branch }}
+          PREFIX=$(echo $BRANCH | sed 's/\.x$//')
+          echo "prefix=$PREFIX" >> $GITHUB_OUTPUT
+          echo "Sprint prefix: $PREFIX"
 
-      - name: Create new tag
+      - name: Get latest tag for sprint
+        id: latest_tag
         run: |
-          git tag ${{ github.event.inputs.tag_version }}
-          git push origin ${{ github.event.inputs.tag_version }}
+          PREFIX=${{ steps.sprint.outputs.prefix }}
+
+          TAG=$(git tag --list "${PREFIX}.*" --sort=-v:refname | head -n 1)
+
+          if [ -z "$TAG" ]; then
+            NEXT=0
+          else
+            LAST_NUM=$(echo $TAG | awk -F'.' '{print $3}')
+            NEXT=$((LAST_NUM + 1))
+          fi
+
+          NEW_TAG="${PREFIX}.${NEXT}"
+
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "Generated tag: $NEW_TAG"
+
+      - name: Create tag
+        run: |
+          git tag ${{ steps.latest_tag.outputs.new_tag }}
+          git push origin ${{ steps.latest_tag.outputs.new_tag }}
+
+      - name: Get last tag (previous)
+        id: prev_tag
+        run: |
+          PREFIX=${{ steps.sprint.outputs.prefix }}
+          PREV=$(git tag --list "${PREFIX}.*" --sort=-v:refname | sed -n '2p')
+          echo "prev_tag=$PREV" >> $GITHUB_OUTPUT
 
       - name: Get commits since last tag
         run: |
-          if [ -z "${{ steps.last_tag.outputs.last_tag }}" ]; then
+          if [ -z "${{ steps.prev_tag.outputs.prev_tag }}" ]; then
             git log --pretty=format:"%s" > commits.txt
           else
-            git log ${{ steps.last_tag.outputs.last_tag }}..HEAD --pretty=format:"%s" > commits.txt
+            git log ${{ steps.prev_tag.outputs.prev_tag }}..HEAD --pretty=format:"%s" > commits.txt
           fi
 
       - name: Extract Jira IDs
@@ -100,7 +124,7 @@ jobs:
             -d "{
               \"id\": \"$PAGE_ID\",
               \"type\": \"page\",
-              \"title\": \"Release Notes - ${{ github.event.inputs.tag_version }}\",
+              \"title\": \"Release Notes - ${{ steps.latest_tag.outputs.new_tag }}\",
               \"version\": { \"number\": $NEW_VERSION },
               \"body\": {
                 \"storage\": {
