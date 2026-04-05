@@ -1,10 +1,17 @@
-name: Create Release Tag & Update Confluence
+name: Cut Tag from Sprint Branch & Update Confluence
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - 'release/*'
+    inputs:
+      sprint_branch:
+        description: 'Enter sprint branch (example: 26.sprint.x)'
+        required: true
+      tag_version:
+        description: 'Enter tag version (example: v26.1)'
+        required: true
+      confluence_page_id:
+        description: 'Enter Confluence Page ID'
+        required: true
 
 jobs:
   release:
@@ -15,89 +22,91 @@ jobs:
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
-      CONFLUENCE_PAGE_ID: ${{ secrets.CONFLUENCE_PAGE_ID }}
       CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
-      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Get latest tag
-        id: get_tag
+      - name: Validate branch exists
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 || echo "")
+          git fetch origin
+          if ! git ls-remote --exit-code --heads origin ${{ github.event.inputs.sprint_branch }}; then
+            echo "❌ Branch does not exist: ${{ github.event.inputs.sprint_branch }}"
+            exit 1
+          fi
+
+      - name: Checkout sprint branch
+        run: |
+          git checkout ${{ github.event.inputs.sprint_branch }}
+
+      - name: Get last tag on this branch
+        id: last_tag
+        run: |
+          LAST_TAG=$(git tag --merged HEAD --sort=-v:refname | head -n 1)
           echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+          echo "Last tag: $LAST_TAG"
 
-      - name: Generate new tag
-        id: new_tag
+      - name: Create new tag
         run: |
-          VERSION=$(date +'%Y.%m.%d.%H%M')
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Create tag
-        run: |
-          git tag ${{ steps.new_tag.outputs.tag }}
-          git push origin ${{ steps.new_tag.outputs.tag }}
+          git tag ${{ github.event.inputs.tag_version }}
+          git push origin ${{ github.event.inputs.tag_version }}
 
       - name: Get commits since last tag
-        id: commits
         run: |
-          git log ${{ steps.get_tag.outputs.last_tag }}..HEAD --pretty=format:"%s" > commits.txt
+          if [ -z "${{ steps.last_tag.outputs.last_tag }}" ]; then
+            git log --pretty=format:"%s" > commits.txt
+          else
+            git log ${{ steps.last_tag.outputs.last_tag }}..HEAD --pretty=format:"%s" > commits.txt
+          fi
 
-      - name: Extract Jira ticket IDs
-        id: jira
+      - name: Extract Jira IDs
         run: |
           grep -oE '[A-Z]+-[0-9]+' commits.txt | sort | uniq > jira_ids.txt
-          cat jira_ids.txt
 
-      - name: Fetch Jira details
-        id: jira_details
+      - name: Build Jira Table
         run: |
-          echo "### Jira Tickets" > jira_summary.md
+          echo "|| Ticket || Summary || Status ||" > jira_table.txt
+
           while read ticket; do
             RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
               -H "Accept: application/json" \
               "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
 
-            STATUS=$(echo $RESPONSE | jq -r '.fields.status.name')
             SUMMARY=$(echo $RESPONSE | jq -r '.fields.summary')
+            STATUS=$(echo $RESPONSE | jq -r '.fields.status.name')
 
-            echo "- [$ticket] $SUMMARY (Status: $STATUS)" >> jira_summary.md
-
-            # Notify Teams if not Done
-            if [[ "$STATUS" != "Done" ]]; then
-              curl -H "Content-Type: application/json" \
-                -d "{\"text\": \"⚠️ $ticket is not in Done status (Current: $STATUS)\"}" \
-                $TEAMS_WEBHOOK_URL
-            fi
-
+            echo "| $ticket | $SUMMARY | $STATUS |" >> jira_table.txt
           done < jira_ids.txt
 
       - name: Update Confluence Page
         run: |
-          CONTENT=$(cat jira_summary.md | sed ':a;N;$!ba;s/\n/\\n/g')
+          PAGE_ID=${{ github.event.inputs.confluence_page_id }}
 
-          PAGE_RESPONSE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
-            "$CONFLUENCE_BASE_URL/rest/api/content/$CONFLUENCE_PAGE_ID?expand=version")
+          CONTENT=$(cat jira_table.txt | sed ':a;N;$!ba;s/\n/<br\/>/g')
 
-          VERSION=$(echo $PAGE_RESPONSE | jq '.version.number')
+          PAGE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+            "$CONFLUENCE_BASE_URL/rest/api/content/$PAGE_ID?expand=version")
+
+          VERSION=$(echo $PAGE | jq '.version.number')
           NEW_VERSION=$((VERSION + 1))
 
           curl -X PUT \
             -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
             -H "Content-Type: application/json" \
             -d "{
-              \"id\": \"$CONFLUENCE_PAGE_ID\",
+              \"id\": \"$PAGE_ID\",
               \"type\": \"page\",
-              \"title\": \"Release Notes\",
+              \"title\": \"Release Notes - ${{ github.event.inputs.tag_version }}\",
               \"version\": { \"number\": $NEW_VERSION },
               \"body\": {
                 \"storage\": {
-                  \"value\": \"<pre>$CONTENT</pre>\",
+                  \"value\": \"$CONTENT\",
                   \"representation\": \"storage\"
                 }
               }
             }" \
-            "$CONFLUENCE_BASE_URL/rest/api/content/$CONFLUENCE_PAGE_ID"
+            "$CONFLUENCE_BASE_URL/rest/api/content/$PAGE_ID"
