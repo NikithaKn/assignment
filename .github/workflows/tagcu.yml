@@ -10,6 +10,9 @@ on:
         description: "Base branch to tag from"
         required: true
         default: "main"
+      sprint_number:
+        description: "Sprint number (e.g. 15)"
+        required: true
       page_id:
         description: "Confluence Page ID"
         required: true
@@ -42,42 +45,56 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # 🔹 Get latest tag
-      - name: Get latest tag
-        id: get_tag
+      # 🚫 Restrict invalid branches
+      - name: Validate branch
         run: |
-          git fetch --tags
-          latest_tag=$(git tag --sort=-v:refname | head -n 1)
+          branch="${{ github.event.inputs.base_branch }}"
 
-          if [ -z "$latest_tag" ]; then
-            latest_tag="v0.0.0"
+          if [[ "$branch" != "main" && "$branch" != *.x ]]; then
+            echo "❌ Invalid branch: $branch"
+            echo "Only 'main' or '.x' branches allowed"
+            exit 1
           fi
 
-          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
-
-      # 🔹 Always patch bump
-      - name: Bump version
-        id: bump
+      # 🧠 Generate sprint-based tag
+      - name: Generate tag
+        id: tagger
         run: |
-          tag=${{ steps.get_tag.outputs.latest_tag }}
+          branch="${{ github.event.inputs.base_branch }}"
+          sprint="${{ github.event.inputs.sprint_number }}"
 
-          version=${tag#v}
-          IFS='.' read -r major minor patch <<< "$version"
+          git fetch --tags
 
-          patch=$((patch+1))
+          if [[ "$branch" == "main" ]]; then
+            # 🟢 Create base tag
+            new_tag="26.$sprint.x"
+          else
+            # 🔴 Increment numeric tags
+            latest_tag=$(git tag --list "26.$sprint.*" \
+              | grep -v '\.x$' \
+              | sort -V \
+              | tail -n 1)
 
-          new_tag="v$major.$minor.$patch"
+            if [ -z "$latest_tag" ]; then
+              new_tag="26.$sprint.0"
+            else
+              last_number=${latest_tag##*.}
+              next=$((last_number + 1))
+              new_tag="26.$sprint.$next"
+            fi
+          fi
+
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
       # 🔹 Prevent duplicate tags
       - name: Check if tag exists
         run: |
-          git rev-parse ${{ steps.bump.outputs.new_tag }} >/dev/null 2>&1 && {
+          git rev-parse ${{ steps.tagger.outputs.new_tag }} >/dev/null 2>&1 && {
             echo "Tag already exists!"
             exit 1
           } || echo "Tag does not exist"
 
-      # 🔹 Collect PR + JIRA details
+      # 🔹 Collect PR + JIRA details (unchanged)
       - name: Collect PR details
         id: pr_details
         run: |
@@ -96,17 +113,17 @@ jobs:
       # 🔹 Create tag
       - name: Create and push tag
         run: |
-          git tag -a ${{ steps.bump.outputs.new_tag }} -m "Release ${{ steps.bump.outputs.new_tag }}"
-          git push origin ${{ steps.bump.outputs.new_tag }}
+          git tag -a ${{ steps.tagger.outputs.new_tag }} -m "Release ${{ steps.tagger.outputs.new_tag }}"
+          git push origin ${{ steps.tagger.outputs.new_tag }}
 
-      # 🔹 Update Confluence (FIXED)
+      # 🔹 Update Confluence (UNCHANGED)
       - name: Update Confluence Page
         env:
           EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
           API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
           BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           PAGE_ID: ${{ github.event.inputs.page_id }}
-          TAG: ${{ steps.bump.outputs.new_tag }}
+          TAG: ${{ steps.tagger.outputs.new_tag }}
           PRS: ${{ steps.pr_details.outputs.prs }}
           JIRA: ${{ steps.pr_details.outputs.jira }}
         run: |
@@ -128,7 +145,6 @@ jobs:
 
           updated_body="$new_entry$current_body"
 
-          # ✅ CRITICAL FIX: escape HTML for JSON
           escaped_body=$(echo "$updated_body" | jq -Rs .)
 
           echo "Updating Confluence page..."
