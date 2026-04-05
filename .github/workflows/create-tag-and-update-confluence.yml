@@ -1,0 +1,103 @@
+name: Create Release Tag & Update Confluence
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'release/*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+      CONFLUENCE_PAGE_ID: ${{ secrets.CONFLUENCE_PAGE_ID }}
+      CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+      CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 || echo "")
+          echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Generate new tag
+        id: new_tag
+        run: |
+          VERSION=$(date +'%Y.%m.%d.%H%M')
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        run: |
+          git tag ${{ steps.new_tag.outputs.tag }}
+          git push origin ${{ steps.new_tag.outputs.tag }}
+
+      - name: Get commits since last tag
+        id: commits
+        run: |
+          git log ${{ steps.get_tag.outputs.last_tag }}..HEAD --pretty=format:"%s" > commits.txt
+
+      - name: Extract Jira ticket IDs
+        id: jira
+        run: |
+          grep -oE '[A-Z]+-[0-9]+' commits.txt | sort | uniq > jira_ids.txt
+          cat jira_ids.txt
+
+      - name: Fetch Jira details
+        id: jira_details
+        run: |
+          echo "### Jira Tickets" > jira_summary.md
+          while read ticket; do
+            RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+              -H "Accept: application/json" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
+
+            STATUS=$(echo $RESPONSE | jq -r '.fields.status.name')
+            SUMMARY=$(echo $RESPONSE | jq -r '.fields.summary')
+
+            echo "- [$ticket] $SUMMARY (Status: $STATUS)" >> jira_summary.md
+
+            # Notify Teams if not Done
+            if [[ "$STATUS" != "Done" ]]; then
+              curl -H "Content-Type: application/json" \
+                -d "{\"text\": \"⚠️ $ticket is not in Done status (Current: $STATUS)\"}" \
+                $TEAMS_WEBHOOK_URL
+            fi
+
+          done < jira_ids.txt
+
+      - name: Update Confluence Page
+        run: |
+          CONTENT=$(cat jira_summary.md | sed ':a;N;$!ba;s/\n/\\n/g')
+
+          PAGE_RESPONSE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+            "$CONFLUENCE_BASE_URL/rest/api/content/$CONFLUENCE_PAGE_ID?expand=version")
+
+          VERSION=$(echo $PAGE_RESPONSE | jq '.version.number')
+          NEW_VERSION=$((VERSION + 1))
+
+          curl -X PUT \
+            -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"id\": \"$CONFLUENCE_PAGE_ID\",
+              \"type\": \"page\",
+              \"title\": \"Release Notes\",
+              \"version\": { \"number\": $NEW_VERSION },
+              \"body\": {
+                \"storage\": {
+                  \"value\": \"<pre>$CONTENT</pre>\",
+                  \"representation\": \"storage\"
+                }
+              }
+            }" \
+            "$CONFLUENCE_BASE_URL/rest/api/content/$CONFLUENCE_PAGE_ID"
