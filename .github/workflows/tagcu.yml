@@ -9,7 +9,7 @@ on:
       base_branch:
         description: "Base branch to tag from"
         required: true
-        default: "main"
+        default: "master"
       sprint_number:
         description: "Sprint number (e.g. 15)"
         required: true
@@ -29,7 +29,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.base_branch || 'main' }}
+          ref: ${{ github.event.inputs.base_branch || 'master' }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -50,9 +50,9 @@ jobs:
         run: |
           branch="${{ github.event.inputs.base_branch }}"
 
-          if [[ "$branch" != "main" && "$branch" != *.x ]]; then
+          if [[ "$branch" != "master" && "$branch" != *.x ]]; then
             echo "❌ Invalid branch: $branch"
-            echo "Only 'main' or '.x' branches allowed"
+            echo "Only 'master' or '.x' branches allowed"
             exit 1
           fi
 
@@ -65,7 +65,7 @@ jobs:
 
           git fetch --tags
 
-          if [[ "$branch" == "main" ]]; then
+          if [[ "$branch" == "master" ]]; then
             # 🟢 Create base tag
             new_tag="26.$sprint.x"
           else
