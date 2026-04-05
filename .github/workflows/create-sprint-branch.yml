@@ -1,0 +1,40 @@
+name: Create Sprint Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      sprint_number:
+        description: "Sprint number (e.g. 15)"
+        required: true
+
+jobs:
+  create_branch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Create sprint branch
+        run: |
+          sprint="${{ github.event.inputs.sprint_number }}"
+          branch_name="26.$sprint.x"
+
+          echo "Creating branch: $branch_name"
+
+          # Fail if branch already exists
+          if git ls-remote --heads origin "$branch_name" | grep "$branch_name"; then
+            echo "Branch already exists: $branch_name"
+            exit 1
+          fi
+
+          git checkout -b "$branch_name"
+          git push origin "$branch_name"
