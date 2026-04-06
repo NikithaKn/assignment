@@ -114,31 +114,43 @@ jobs:
             -H "Accept: application/json" \
             "$CONFLUENCE_BASE_URL/rest/api/content/${{ github.event.inputs.confluence_page_id }}?expand=version"
 
+       # 🔹 Update Confluence (UNCHANGED)
       - name: Update Confluence Page
+        env:
+          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          PAGE_ID: ${{ github.event.inputs.page_id }}
+          TAG: ${{ steps.tagger.outputs.new_tag }}
+          PRS: ${{ steps.pr_details.outputs.prs }}
+          JIRA: ${{ steps.pr_details.outputs.jira }}
         run: |
-          PAGE_ID=${{ github.event.inputs.confluence_page_id }}
-
-          CONTENT=$(cat jira_table.txt | sed ':a;N;$!ba;s/\n/<br\/>/g')
-
-          PAGE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
-            "$CONFLUENCE_BASE_URL/rest/api/content/$PAGE_ID?expand=version")
-
-          VERSION=$(echo $PAGE | jq '.version.number')
-          NEW_VERSION=$((VERSION + 1))
-
-          curl -X PUT \
-            -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+          echo "Fetching page..."
+          response=$(curl -s -u $EMAIL:$API_TOKEN \
+            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+          current_version=$(echo $response | jq '.version.number')
+          new_version=$((current_version + 1))
+          current_body=$(echo $response | jq -r '.body.storage.value')
+          new_entry="<h3>Release $TAG</h3>
+          <p><b>Date:</b> $(date)</p>
+          <p><b>PRs:</b><br/>$PRS</p>
+          <p><b>JIRA:</b><br/>$JIRA</p>
+          <hr/>"
+          updated_body="$new_entry$current_body"
+          escaped_body=$(echo "$updated_body" | jq -Rs .)
+          echo "Updating Confluence page..."
+          curl -v -u $EMAIL:$API_TOKEN \
+            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
             -H "Content-Type: application/json" \
             -d "{
               \"id\": \"$PAGE_ID\",
               \"type\": \"page\",
-              \"title\": \"Release Notes - ${{ steps.latest_tag.outputs.new_tag }}\",
-              \"version\": { \"number\": $NEW_VERSION },
+              \"title\": \"Release notes\",
+              \"version\": {\"number\": $new_version},
               \"body\": {
                 \"storage\": {
-                  \"value\": \"$CONTENT\",
+                  \"value\": $escaped_body,
                   \"representation\": \"storage\"
                 }
               }
-            }" \
-            "$CONFLUENCE_BASE_URL/rest/api/content/$PAGE_ID"
+            }"
