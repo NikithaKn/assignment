@@ -6,9 +6,11 @@ on:
       sprint_branch:
         description: 'Enter sprint branch (example: 26.sprint.x)'
         required: true
+        type: string
       confluence_page_id:
         description: 'Enter Confluence Page ID'
         required: true
+        type: string
 
 jobs:
   release:
