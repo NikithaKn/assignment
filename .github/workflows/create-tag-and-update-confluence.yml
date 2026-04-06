@@ -90,49 +90,7 @@ jobs:
       - name: Extract Jira IDs
         run: |
           grep -oE '[A-Z]+-[0-9]+' commits.txt | sort | uniq > jira_ids.txt
-
-       # 🔹 Update Confluence (UNCHANGED)
-      - name: Update Confluence Page
-        env:
-          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
-          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
-          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
-          PAGE_ID: ${{ github.event.inputs.page_id }}
-          TAG: ${{ steps.tagger.outputs.new_tag }}
-          PRS: ${{ steps.pr_details.outputs.prs }}
-          JIRA: ${{ steps.pr_details.outputs.jira }}
-        run: |
-          echo "Fetching page..."
-          response=$(curl -s -u $EMAIL:$API_TOKEN \
-            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
-          current_version=$(echo $response | jq '.version.number')
-          new_version=$((current_version + 1))
-          current_body=$(echo $response | jq -r '.body.storage.value')
-          new_entry="<h3>Release $TAG</h3>
-          <p><b>Date:</b> $(date)</p>
-          <p><b>PRs:</b><br/>$PRS</p>
-          <p><b>JIRA:</b><br/>$JIRA</p>
-          <hr/>"
-          updated_body="$new_entry$current_body"
-          escaped_body=$(echo "$updated_body" | jq -Rs .)
-          echo "Updating Confluence page..."
-          curl -v -u $EMAIL:$API_TOKEN \
-            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"id\": \"$PAGE_ID\",
-              \"type\": \"page\",
-              \"title\": \"Release notes\",
-              \"version\": {\"number\": $new_version},
-              \"body\": {
-                \"storage\": {
-                  \"value\": $escaped_body,
-                  \"representation\": \"storage\"
-                }
-              }
-            }"
-
-        - name: Build Jira Table with Links
+       - name: Build Jira Table with Links
   run: |
     echo "<table>" > jira_table.html
     echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
@@ -157,51 +115,48 @@ jobs:
 
     echo "</table>" >> jira_table.html
 
-      - name: Debug Confluence API
-        run: |
-          echo "Testing..."
+    - name: Update Confluence Page (SRN)
+  run: |
+    PAGE_ID=${{ github.event.inputs.confluence_page_id }}
+    TAG=${{ steps.latest_tag.outputs.new_tag }}
 
-          curl -v -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
-            -H "Accept: application/json" \
-            "$CONFLUENCE_BASE_URL/rest/api/content/${{ github.event.inputs.confluence_page_id }}?expand=version"
+    echo "Fetching page..."
 
-       # 🔹 Update Confluence (UNCHANGED)
-      - name: Update Confluence Page
-        env:
-          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
-          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
-          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
-          PAGE_ID: ${{ github.event.inputs.page_id }}
-          TAG: ${{ steps.tagger.outputs.new_tag }}
-          PRS: ${{ steps.pr_details.outputs.prs }}
-          JIRA: ${{ steps.pr_details.outputs.jira }}
-        run: |
-          echo "Fetching page..."
-          response=$(curl -s -u $EMAIL:$API_TOKEN \
-            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
-          current_version=$(echo $response | jq '.version.number')
-          new_version=$((current_version + 1))
-          current_body=$(echo $response | jq -r '.body.storage.value')
-          new_entry="<h3>Release $TAG</h3>
-          <p><b>Date:</b> $(date)</p>
-          <p><b>PRs:</b><br/>$PRS</p>
-          <p><b>JIRA:</b><br/>$JIRA</p>
-          <hr/>"
-          updated_body="$new_entry$current_body"
-          escaped_body=$(echo "$updated_body" | jq -Rs .)
-          echo "Updating Confluence page..."
-          curl -v -u $EMAIL:$API_TOKEN \
-            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"id\": \"$PAGE_ID\",
-              \"type\": \"page\",
-              \"title\": \"Release notes\",
-              \"version\": {\"number\": $new_version},
-              \"body\": {
-                \"storage\": {
-                  \"value\": $escaped_body,
-                  \"representation\": \"storage\"
-                }
-              }
-            }"
+    response=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+      -H "Accept: application/json" \
+      "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+
+    version=$(echo "$response" | jq -r '.version.number')
+    new_version=$((version + 1))
+
+    existing_body=$(echo "$response" | jq -r '.body.storage.value')
+
+    table=$(cat jira_table.html)
+
+    new_entry="<h2>Release $TAG</h2>
+    <p><b>Date:</b> $(date)</p>
+    $table
+    <hr/>"
+
+    updated_body="$new_entry $existing_body"
+
+    escaped_body=$(printf '%s' "$updated_body" | jq -Rs .)
+
+    echo "Updating Confluence..."
+
+    curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+      -X PUT "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"id\": \"$PAGE_ID\",
+        \"type\": \"page\",
+        \"title\": \"Release notes\",
+        \"version\": {\"number\": $new_version},
+        \"body\": {
+          \"storage\": {
+            \"value\": $escaped_body,
+            \"representation\": \"storage\"
+          }
+        }
+      }"
+      
