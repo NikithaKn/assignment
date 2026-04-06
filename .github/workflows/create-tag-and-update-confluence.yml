@@ -91,20 +91,46 @@ jobs:
         run: |
           grep -oE '[A-Z]+-[0-9]+' commits.txt | sort | uniq > jira_ids.txt
 
-      - name: Build Jira Table
+       # 🔹 Update Confluence (UNCHANGED)
+      - name: Update Confluence Page
+        env:
+          EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
+          API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
+          BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          PAGE_ID: ${{ github.event.inputs.page_id }}
+          TAG: ${{ steps.tagger.outputs.new_tag }}
+          PRS: ${{ steps.pr_details.outputs.prs }}
+          JIRA: ${{ steps.pr_details.outputs.jira }}
         run: |
-          echo "|| Ticket || Summary || Status ||" > jira_table.txt
-
-          while read ticket; do
-            RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-              -H "Accept: application/json" \
-              "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
-
-            SUMMARY=$(echo $RESPONSE | jq -r '.fields.summary')
-            STATUS=$(echo $RESPONSE | jq -r '.fields.status.name')
-
-            echo "| $ticket | $SUMMARY | $STATUS |" >> jira_table.txt
-          done < jira_ids.txt
+          echo "Fetching page..."
+          response=$(curl -s -u $EMAIL:$API_TOKEN \
+            -X GET "$BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+          current_version=$(echo $response | jq '.version.number')
+          new_version=$((current_version + 1))
+          current_body=$(echo $response | jq -r '.body.storage.value')
+          new_entry="<h3>Release $TAG</h3>
+          <p><b>Date:</b> $(date)</p>
+          <p><b>PRs:</b><br/>$PRS</p>
+          <p><b>JIRA:</b><br/>$JIRA</p>
+          <hr/>"
+          updated_body="$new_entry$current_body"
+          escaped_body=$(echo "$updated_body" | jq -Rs .)
+          echo "Updating Confluence page..."
+          curl -v -u $EMAIL:$API_TOKEN \
+            -X PUT "$BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"id\": \"$PAGE_ID\",
+              \"type\": \"page\",
+              \"title\": \"Release notes\",
+              \"version\": {\"number\": $new_version},
+              \"body\": {
+                \"storage\": {
+                  \"value\": $escaped_body,
+                  \"representation\": \"storage\"
+                }
+              }
+            }"
 
       - name: Debug Confluence API
         run: |
