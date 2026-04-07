@@ -93,6 +93,11 @@ jobs:
 
           echo "===== COMMITS ====="
           cat commits.txt || echo "No commits found"
+          
+      - name: Debug commits content
+        run: |
+         echo "===== COMMITS.TXT CONTENT ====="
+         cat commits.txt || echo "commits.txt is empty"
 
       # ✅ Extract Jira IDs
       - name: Extract Jira IDs
