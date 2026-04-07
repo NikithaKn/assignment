@@ -72,12 +72,6 @@ jobs:
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
           echo "✅ New tag: $NEW_TAG"
 
-      # ✅ Create tag
-      - name: Create tag
-        run: |
-          git tag ${{ steps.tag.outputs.new_tag }}
-          git push origin ${{ steps.tag.outputs.new_tag }}
-
       # ✅ Get previous tag
       - name: Get previous tag
         id: prev
@@ -85,15 +79,20 @@ jobs:
           PREFIX=${{ steps.sprint.outputs.prefix }}
           PREV=$(git tag --list "${PREFIX}.*" --sort=-v:refname | sed -n '2p')
           echo "prev_tag=$PREV" >> $GITHUB_OUTPUT
-
-      # ✅ Get commits
+          
+            # ✅ Get commits
       - name: Get commits since last tag
         run: |
+          echo "Prev tag: ${{ steps.prev.outputs.prev_tag }}"
+
           if [ -z "${{ steps.prev.outputs.prev_tag }}" ]; then
             git log --pretty=format:"%s" > commits.txt
           else
             git log ${{ steps.prev.outputs.prev_tag }}..HEAD --pretty=format:"%s" > commits.txt
           fi
+
+          echo "===== COMMITS ====="
+          cat commits.txt || echo "No commits found"
 
       # ✅ Extract Jira IDs
       - name: Extract Jira IDs
@@ -175,3 +174,9 @@ jobs:
                 }
               }
             }"
+        # ✅ Create tag
+      - name: Create tag
+        run: |
+          git tag ${{ steps.tag.outputs.new_tag }}
+          git push origin ${{ steps.tag.outputs.new_tag }}
+
