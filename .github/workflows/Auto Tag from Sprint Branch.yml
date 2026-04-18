@@ -109,6 +109,9 @@ jobs:
             echo "<p>No Jira tickets found</p>" > jira_table.html
             exit 0
           fi
+      - name: Test grep
+        run: |
+           echo "TEST-123: added comment" | grep -oiE '[A-Z]+-[0-9]+'
 
       # ✅ Build Jira table
       - name: Build Jira Table
