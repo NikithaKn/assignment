@@ -10,7 +10,7 @@ export class ActivityComponent implements OnInit {
 
   listData = [];
   constructor(private service :ProjService) { }
-
+// added comment KAN-1
   ngOnInit() {
       this.service.getImages().subscribe( (resp:any) => {
        for(let i =0; i< 25 ; i++){
