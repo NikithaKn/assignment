@@ -25,40 +25,33 @@ jobs:
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
 
     steps:
-      # ✅ Checkout repo
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      # ✅ Validate branch
       - name: Validate sprint branch
         run: |
           git fetch origin
           if ! git ls-remote --exit-code --heads origin ${{ github.event.inputs.sprint_branch }}; then
-            echo "❌ Branch does not exist"
             exit 1
           fi
 
-      # ✅ Checkout branch
       - name: Checkout sprint branch
         run: |
           git fetch origin
           git checkout -B ${{ github.event.inputs.sprint_branch }} origin/${{ github.event.inputs.sprint_branch }}
 
-      # ✅ Extract prefix
       - name: Extract sprint prefix
         id: sprint
         run: |
           PREFIX=$(echo "${{ github.event.inputs.sprint_branch }}" | sed 's/\.x$//')
           echo "prefix=$PREFIX" >> $GITHUB_OUTPUT
 
-      # ✅ Generate next tag
       - name: Generate next tag
         id: tag
         run: |
           PREFIX=${{ steps.sprint.outputs.prefix }}
-
           LAST_TAG=$(git tag --list "${PREFIX}.*" --sort=-v:refname | head -n 1)
 
           if [ -z "$LAST_TAG" ]; then
@@ -70,70 +63,61 @@ jobs:
 
           NEW_TAG="${PREFIX}.${NEXT}"
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
-          echo "New tag: $NEW_TAG"
 
-      # ✅ Get previous tag
       - name: Get previous tag
         id: prev
         run: |
           PREFIX=${{ steps.sprint.outputs.prefix }}
           TAGS=$(git tag --list "${PREFIX}.*" --sort=-v:refname)
-
           PREV=$(echo "$TAGS" | sed -n '2p')
           echo "prev_tag=$PREV" >> $GITHUB_OUTPUT
 
-      # ✅ Get commits
+      # ✅ COMMITS JSON
       - name: Get commits
+        id: commits
         run: |
           PREV_TAG="${{ steps.prev.outputs.prev_tag }}"
 
           if [ -z "$PREV_TAG" ]; then
-            git log -20 --pretty=format:"%s" --no-merges > commits.txt
+            git log -20 --pretty=format:"%h|%s|%an|%ar" --no-merges > commits.txt
           else
-            git log "$PREV_TAG"..HEAD --pretty=format:"%s" --no-merges > commits.txt
+            git log "$PREV_TAG"..HEAD --pretty=format:"%h|%s|%an|%ar" --no-merges > commits.txt
           fi
 
-          echo "===== COMMITS ====="
-          cat commits.txt
+          jq -R -s -c '
+            split("\n")[:-1] |
+            map(split("|")) |
+            map({
+              sha: .[0],
+              message: .[1],
+              author: .[2],
+              date: .[3]
+            })
+          ' commits.txt > commits.json
 
-      # ✅ Extract Jira IDs
+          echo "commits=$(cat commits.json)" >> $GITHUB_OUTPUT
+
       - name: Extract Jira IDs
         run: |
           grep -oiE '[A-Z]+-[0-9]+' commits.txt | sort -u > jira_ids.txt
 
-          echo "===== JIRA IDS ====="
-          cat jira_ids.txt
-
-          if [ ! -s jira_ids.txt ]; then
-            echo "<p>No Jira tickets found</p>" > jira_table.html
-            exit 0
-          fi
-
-      # ✅ Build Jira Table (ALL tickets)
-      - name: Build Jira Table
+      # ✅ JIRA JSON + HTML
+      - name: Build Jira Table + JSON
+        id: jira
         run: |
           echo "<table>" > jira_table.html
           echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
 
-          while read ticket; do
-            echo "Processing $ticket..."
+          echo "[]" > jira.json
 
-            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-              -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+          while read ticket; do
+            RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
               -H "Accept: application/json" \
               "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
 
-            HTTP_STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d':' -f2)
-            BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
-
-            if [ "$HTTP_STATUS" != "200" ]; then
-              echo "❌ Failed for $ticket"
-              echo "$BODY"
-              continue
-            fi
-
-            STATUS=$(echo "$BODY" | jq -r '.fields.status.name')
-            ASSIGNEE=$(echo "$BODY" | jq -r '.fields.assignee.displayName // "Unassigned"')
+            STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
+            ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
+            SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
 
             LINK="$JIRA_BASE_URL/browse/$ticket"
 
@@ -143,11 +127,73 @@ jobs:
               <td>$ASSIGNEE</td>
             </tr>" >> jira_table.html
 
+            jq --arg id "$ticket" \
+               --arg summary "$SUMMARY" \
+               --arg status "$STATUS" \
+               '. += [{"id":$id,"summary":$summary,"status":$status}]' \
+               jira.json > tmp.json && mv tmp.json jira.json
+
           done < jira_ids.txt
 
           echo "</table>" >> jira_table.html
+          echo "jira_data=$(cat jira.json | jq -c .)" >> $GITHUB_OUTPUT
 
-      # ✅ Update Confluence
+      # ✅ DASHBOARD DATA
+      - name: Create Dashboard Data
+        run: |
+          mkdir -p docs/data
+
+          TAG="${{ steps.tag.outputs.new_tag }}"
+          DATE=$(date +'%Y-%m-%d')
+          BRANCH="${{ github.event.inputs.sprint_branch }}"
+
+          TICKETS='${{ steps.jira.outputs.jira_data }}'
+          COMMITS='${{ steps.commits.outputs.commits }}'
+
+          COUNT=$(echo "$COMMITS" | jq length)
+
+          NEW=$(jq -n \
+            --arg tag "$TAG" \
+            --arg date "$DATE" \
+            --arg branch "$BRANCH" \
+            --arg status "Successful" \
+            --arg deployedTo "Production" \
+            --argjson tickets "$TICKETS" \
+            --argjson commitCount "$COUNT" \
+            '{tag:$tag,date:$date,branch:$branch,status:$status,deployedTo:$deployedTo,tickets:$tickets,commitCount:$commitCount}')
+
+          if [ -f docs/data/releases.json ]; then
+            EXISTING=$(cat docs/data/releases.json)
+          else
+            EXISTING='{"releases":[]}'
+          fi
+
+          echo "$EXISTING" | jq --argjson new "$NEW" \
+            '.releases = ([$new] + .releases)[:50]' > docs/data/releases.json
+
+          echo "$COMMITS" > docs/data/commits.json
+
+          echo "$TICKETS" | jq '{
+            tickets: .,
+            summary: {
+              done: [.[] | select(.status=="Done")] | length,
+              inProgress: [.[] | select(.status=="In Progress")] | length,
+              toDo: [.[] | select(.status=="To Do")] | length,
+              blocked: [.[] | select(.status=="Blocked")] | length
+            }
+          }' > docs/data/tickets.json
+
+      # ✅ Commit dashboard data
+      - name: Commit Dashboard Data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add docs/
+          git commit -m "update dashboard for ${{ steps.tag.outputs.new_tag }}" || exit 0
+          git push
+
+      # ✅ Confluence (unchanged)
       - name: Update Confluence Page
         run: |
           PAGE_ID=${{ github.event.inputs.confluence_page_id }}
@@ -163,9 +209,7 @@ jobs:
           EXISTING_CONTENT=$(echo "$RESPONSE" | jq -r '.body.storage.value')
           TABLE=$(cat jira_table.html)
 
-          NEW_SECTION="<hr/><h2>Release $TAG</h2>
-          <p><b>Date:</b> $(date)</p>
-          $TABLE"
+          NEW_SECTION="<hr/><h2>Release $TAG</h2><p><b>Date:</b> $(date)</p>$TABLE"
 
           FINAL_CONTENT="$NEW_SECTION $EXISTING_CONTENT"
           ESCAPED_CONTENT=$(printf '%s' "$FINAL_CONTENT" | jq -Rs .)
@@ -178,15 +222,9 @@ jobs:
               \"type\": \"page\",
               \"title\": \"Release Notes\",
               \"version\": {\"number\": $NEW_VERSION},
-              \"body\": {
-                \"storage\": {
-                  \"value\": $ESCAPED_CONTENT,
-                  \"representation\": \"storage\"
-                }
-              }
+              \"body\": {\"storage\": {\"value\": $ESCAPED_CONTENT,\"representation\": \"storage\"}}
             }"
 
-      # ✅ Create tag
       - name: Create tag
         run: |
           git tag ${{ steps.tag.outputs.new_tag }}
