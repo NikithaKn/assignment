@@ -26,13 +26,12 @@ jobs:
 
     steps:
       # ✅ Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      # ✅ Validate branch exists
+      # ✅ Validate branch
       - name: Validate sprint branch
         run: |
           git fetch origin
@@ -44,7 +43,8 @@ jobs:
       # ✅ Checkout branch
       - name: Checkout sprint branch
         run: |
-          git checkout ${{ github.event.inputs.sprint_branch }}
+          git fetch origin
+          git checkout -B ${{ github.event.inputs.sprint_branch }} origin/${{ github.event.inputs.sprint_branch }}
 
       # ✅ Extract prefix
       - name: Extract sprint prefix
@@ -70,7 +70,7 @@ jobs:
 
           NEW_TAG="${PREFIX}.${NEXT}"
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
-          echo "✅ New tag: $NEW_TAG"
+          echo "New tag: $NEW_TAG"
 
       # ✅ Get previous tag
       - name: Get previous tag
@@ -83,18 +83,14 @@ jobs:
           echo "$TAGS"
 
           PREV=$(echo "$TAGS" | sed -n '2p')
-          echo "Previous tag: $PREV"
           echo "prev_tag=$PREV" >> $GITHUB_OUTPUT
 
-      # ✅ 🚨 FIX: Get commits (THIS WAS MISSING)
-      - name: Get commits since last tag
+      # ✅ Get commits
+      - name: Get commits
         run: |
           PREV_TAG="${{ steps.prev.outputs.prev_tag }}"
 
-          echo "Prev tag: $PREV_TAG"
-
           if [ -z "$PREV_TAG" ]; then
-            echo "⚠️ No previous tag found, taking last 20 commits"
             git log -20 --pretty=format:"%s" --no-merges > commits.txt
           else
             git log "$PREV_TAG"..HEAD --pretty=format:"%s" --no-merges > commits.txt
@@ -112,24 +108,43 @@ jobs:
           cat jira_ids.txt
 
           if [ ! -s jira_ids.txt ]; then
-            echo "⚠️ No Jira tickets found"
             echo "<p>No Jira tickets found</p>" > jira_table.html
             exit 0
           fi
 
-      # ✅ Build Jira table
+      # ✅ Build Jira table (ROBUST VERSION)
       - name: Build Jira Table
         run: |
           echo "<table>" > jira_table.html
           echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
 
+          COUNT=0
+
           while read ticket; do
-            RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+            echo "Processing $ticket..."
+
+            RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+              -u $JIRA_EMAIL:$JIRA_API_TOKEN \
               -H "Accept: application/json" \
               "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
 
-            STATUS=$(echo $RESPONSE | jq -r '.fields.status.name')
-            ASSIGNEE=$(echo $RESPONSE | jq -r '.fields.assignee.displayName // "Unassigned"')
+            HTTP_STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d':' -f2)
+            BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "❌ Failed for $ticket"
+              echo "$BODY"
+              continue
+            fi
+
+            STATUS=$(echo "$BODY" | jq -r '.fields.status.name')
+            ASSIGNEE=$(echo "$BODY" | jq -r '.fields.assignee.displayName // "Unassigned"')
+
+            # ✅ Only Done tickets
+            if [[ "$STATUS" != "Done" ]]; then
+              echo "Skipping $ticket ($STATUS)"
+              continue
+            fi
 
             LINK="$JIRA_BASE_URL/browse/$ticket"
 
@@ -139,9 +154,15 @@ jobs:
               <td>$ASSIGNEE</td>
             </tr>" >> jira_table.html
 
+            COUNT=$((COUNT + 1))
+
           done < jira_ids.txt
 
           echo "</table>" >> jira_table.html
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "<p>No Done Jira tickets found</p>" > jira_table.html
+          fi
 
       # ✅ Update Confluence
       - name: Update Confluence Page
