@@ -79,9 +79,6 @@ jobs:
           PREFIX=${{ steps.sprint.outputs.prefix }}
           TAGS=$(git tag --list "${PREFIX}.*" --sort=-v:refname)
 
-          echo "All tags:"
-          echo "$TAGS"
-
           PREV=$(echo "$TAGS" | sed -n '2p')
           echo "prev_tag=$PREV" >> $GITHUB_OUTPUT
 
@@ -112,13 +109,11 @@ jobs:
             exit 0
           fi
 
-      # ✅ Build Jira table (ROBUST VERSION)
+      # ✅ Build Jira Table (ALL tickets)
       - name: Build Jira Table
         run: |
           echo "<table>" > jira_table.html
           echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
-
-          COUNT=0
 
           while read ticket; do
             echo "Processing $ticket..."
@@ -140,12 +135,6 @@ jobs:
             STATUS=$(echo "$BODY" | jq -r '.fields.status.name')
             ASSIGNEE=$(echo "$BODY" | jq -r '.fields.assignee.displayName // "Unassigned"')
 
-            # ✅ Only Done tickets
-            if [[ "$STATUS" != "Done" ]]; then
-              echo "Skipping $ticket ($STATUS)"
-              continue
-            fi
-
             LINK="$JIRA_BASE_URL/browse/$ticket"
 
             echo "<tr>
@@ -154,15 +143,9 @@ jobs:
               <td>$ASSIGNEE</td>
             </tr>" >> jira_table.html
 
-            COUNT=$((COUNT + 1))
-
           done < jira_ids.txt
 
           echo "</table>" >> jira_table.html
-
-          if [ "$COUNT" -eq 0 ]; then
-            echo "<p>No Done Jira tickets found</p>" > jira_table.html
-          fi
 
       # ✅ Update Confluence
       - name: Update Confluence Page
