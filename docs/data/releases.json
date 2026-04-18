@@ -1,0 +1,24 @@
+{
+  "releases": [
+    {
+      "tag": "26.5.10",
+      "date": "2026-04-18",
+      "branch": "26.5.x",
+      "status": "Successful",
+      "deployedTo": "Production",
+      "tickets": [
+        {
+          "id": "KAN-1",
+          "summary": "TEST-123",
+          "status": "In Progress"
+        },
+        {
+          "id": "TEST-101",
+          "summary": "null",
+          "status": "null"
+        }
+      ],
+      "commitCount": 1
+    }
+  ]
+}

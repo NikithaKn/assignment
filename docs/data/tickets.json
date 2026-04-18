@@ -1,0 +1,20 @@
+{
+  "tickets": [
+    {
+      "id": "KAN-1",
+      "summary": "TEST-123",
+      "status": "In Progress"
+    },
+    {
+      "id": "TEST-101",
+      "summary": "null",
+      "status": "null"
+    }
+  ],
+  "summary": {
+    "done": 0,
+    "inProgress": 1,
+    "toDo": 0,
+    "blocked": 0
+  }
+}
