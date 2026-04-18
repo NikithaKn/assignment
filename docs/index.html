@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Release & Deployment Dashboard</title>
+    <script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/chart.js)"></script>
+    <link rel="stylesheet" href="[cdnjs.cloudflare.com](https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css)">
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+        }
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        }
+        .card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--bg-tertiary);
+            border-radius: 8px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-successful { background-color: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .status-failed { background-color: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+        .status-in-progress { background-color: rgba(210, 153, 34, 0.2); color: var(--accent-yellow); }
+        .status-done { background-color: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .env-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .env-production { background-color: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .env-staging { background-color: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        .sidebar-link:hover, .sidebar-link.active {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        .sidebar-link.active {
+            background-color: var(--accent-blue);
+            color: white;
+        }
+        .table-row:hover {
+            background-color: var(--bg-tertiary);
+        }
+        .jira-link {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+        .jira-link:hover {
+            text-decoration: underline;
+        }
+        .progress-bar {
+            height: 8px;
+            border-radius: 4px;
+            background-color: var(--bg-tertiary);
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="flex">
+        <!-- Sidebar -->
+        <aside class="w-56 min-h-screen p-4 border-r border-gray-800 fixed">
+            <div class="flex items-center gap-3 mb-8 px-2">
+                <i class="fab fa-github text-3xl"></i>
+                <span class="font-semibold text-lg">Dashboard</span>
+            </div>
+            <nav class="space-y-1">
+                <a href="#" class="sidebar-link active">
+                    <i class="fas fa-chart-pie w-5 mr-3"></i> Overview
+                </a>
+                <a href="#releases" class="sidebar-link">
+                    <i class="fas fa-tags w-5 mr-3"></i> Releases
+                </a>
+                <a href="#tickets" class="sidebar-link">
+                    <i class="fab fa-jira w-5 mr-3"></i> Jira Tickets
+                </a>
+                <a href="#deployments" class="sidebar-link">
+                    <i class="fas fa-rocket w-5 mr-3"></i> Deployments
+                </a>
+                <a href="#commits" class="sidebar-link">
+                    <i class="fas fa-code-commit w-5 mr-3"></i> Commits
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="ml-56 flex-1 p-6">
+            <!-- Header -->
+            <header class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="text-2xl font-bold">Release & Deployment Dashboard</h1>
+                    <p class="text-gray-500 text-sm">Track tags, Jira tickets, commits, and deployment status</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-sm text-gray-500">
+                        <i class="fas fa-sync-alt mr-1"></i> Auto-updated by GitHub Actions
+                    </span>
+                    <span id="dateRange" class="text-sm bg-gray-800 px-3 py-1 rounded"></span>
+                    <button onclick="refreshData()" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm">
+                        <i class="fas fa-refresh mr-2"></i>Refresh
+                    </button>
+                </div>
+            </header>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="card stat-card p-4">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-500 text-sm">Total Releases</p>
+                            <p id="totalReleases" class="text-3xl font-bold mt-1">-</p>
+                            <p id="releasesTrend" class="text-green-400 text-xs mt-2"></p>
+                        </div>
+                        <div class="bg-blue-500/20 p-3 rounded-lg">
+                            <i class="fas fa-tags text-blue-400"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card stat-card p-4">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-500 text-sm">Jira Tickets</p>
+                            <p id="totalTickets" class="text-3xl font-bold mt-1">-</p>
+                            <p id="ticketsTrend" class="text-green-400 text-xs mt-2"></p>
+                        </div>
+                        <div class="bg-yellow-500/20 p-3 rounded-lg">
+                            <i class="fab fa-jira text-yellow-400"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card stat-card p-4">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-500 text-sm">Commits</p>
+                            <p id="totalCommits" class="text-3xl font-bold mt-1">-</p>
+                            <p id="commitsTrend" class="text-green-400 text-xs mt-2"></p>
+                        </div>
+                        <div class="bg-purple-500/20 p-3 rounded-lg">
+                            <i class="fas fa-code text-purple-400"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card stat-card p-4">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="text-gray-500 text-sm">Success Rate</p>
+                            <p id="successRate" class="text-3xl font-bold mt-1">-</p>
+                            <p id="successTrend" class="text-green-400 text-xs mt-2"></p>
+                        </div>
+                        <div class="bg-green-500/20 p-3 rounded-lg">
+                            <i class="fas fa-check-circle text-green-400"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-3 gap-4 mb-6">
+                <div class="card p-4">
+                    <h3 class="font-semibold mb-4">Releases Over Time</h3>
+                    <canvas id="releasesChart" height="200"></canvas>
+                </div>
+                <div class="card p-4">
+                    <h3 class="font-semibold mb-4">Deployment Status</h3>
+                    <canvas id="deploymentChart" height="200"></canvas>
+                </div>
+                <div class="card p-4">
+                    <h3 class="font-semibold mb-4">Tickets by Status</h3>
+                    <div id="ticketStatusBars" class="space-y-3 mt-6"></div>
+                </div>
+            </div>
+
+            <!-- Recent Releases Table -->
+            <div class="card p-4 mb-6" id="releases">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-semibold">Recent Releases</h3>
+                    <button class="text-blue-400 text-sm hover:underline">View All Releases</button>
+                </div>
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-gray-500 text-sm text-left border-b border-gray-800">
+                            <th class="pb-3">Tag</th>
+                            <th class="pb-3">Date</th>
+                            <th class="pb-3">Jira Tickets</th>
+                            <th class="pb-3">Commits</th>
+                            <th class="pb-3">Branch</th>
+                            <th class="pb-3">Status</th>
+                            <th class="pb-3">Deployed To</th>
+                            <th class="pb-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="releasesTableBody">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Bottom Section -->
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Recent Commits -->
+                <div class="card p-4" id="commits">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-semibold">Recent Commits</h3>
+                        <button class="text-blue-400 text-sm hover:underline">View All Commits</button>
+                    </div>
+                    <div id="commitsContainer" class="space-y-3">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Jira Ticket Summary -->
+                <div class="card p-4" id="tickets">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-semibold">Jira Ticket Summary</h3>
+                        <button class="text-blue-400 text-sm hover:underline">View All Tickets</button>
+                    </div>
+                    <div id="ticketsContainer" class="space-y-3">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            jiraBaseUrl: '[your-org.atlassian.net](https://your-org.atlassian.net/browse)',
+            repoUrl: '[github.com](https://github.com/your-org/your-repo)',
+            dataPath: './data'
+        };
+
+        let dashboardData = {
+            releases: [],
+            commits: [],
+            tickets: { tickets: [], summary: {} }
+        };
+
+        // Fetch dashboard data
+        async function fetchData() {
+            try {
+                const [releasesRes, commitsRes, ticketsRes] = await Promise.all([
+                    fetch(`${CONFIG.dataPath}/releases.json`),
+                    fetch(`${CONFIG.dataPath}/commits.json`),
+                    fetch(`${CONFIG.dataPath}/tickets.json`)
+                ]);
+
+                if (releasesRes.ok) dashboardData.releases = (await releasesRes.json()).releases || [];
+                if (commitsRes.ok) dashboardData.commits = await commitsRes.json() || [];
+                if (ticketsRes.ok) dashboardData.tickets = await ticketsRes.json() || { tickets: [], summary: {} };
+
+                renderDashboard();
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                loadSampleData();
+            }
+        }
+
+        // Sample data for demo
+        function loadSampleData() {
+            dashboardData = {
+                releases: [
+                    { tag: 'v2.4.0', date: '2024-05-31', tickets: [{id: 'PROJ-123'}, {id: 'PROJ-124'}, {id: 'PROJ-125'}], commitCount: 8, branch: 'main', status: 'Successful', deployedTo: 'Production' },
+                    { tag: 'v2.3.0', date: '2024-05-24', tickets: [{id: 'PROJ-120'}, {id: 'PROJ-121'}], commitCount: 5, branch: 'release/2.3', status: 'Successful', deployedTo: 'Production' },
+                    { tag: 'v2.2.1', date: '2024-05-17', tickets: [{id: 'PROJ-118'}], commitCount: 3, branch: 'hotfix/2.2.1', status: 'In Progress', deployedTo: 'Staging' },
+                    { tag: 'v2.2.0', date: '2024-05-10', tickets: [{id: 'PROJ-115'}, {id: 'PROJ-116'}, {id: 'PROJ-117'}], commitCount: 7, branch: 'main', status: 'Successful', deployedTo: 'Production' },
+                    { tag: 'v2.1.0', date: '2024-05-03', tickets: [{id: 'PROJ-110'}, {id: 'PROJ-111'}], commitCount: 4, branch: 'release/2.1', status: 'Failed', deployedTo: 'Production' }
+                ],
+                commits: [
+                    { sha: 'a1b2c3d', message: 'PROJ-125: Add payment validation', author: 'John D.', date: '2h ago' },
+                    { sha: 'd4e5f6g', message: 'PROJ-124: Fix user profile bug', author: 'Sarah M.', date: '4h ago' },
+                    { sha: 'h7i8j0k', message: 'PROJ-123: Update API endpoints', author: 'Mike R.', date: '6h ago' },
+                    { sha: 'l0m1n2o', message: 'PROJ-122: Add unit tests', author: 'John D.', date: '1d ago' },
+                    { sha: 'p3q4r5s', message: 'PROJ-121: Refactor auth service', author: 'Sarah M.', date: '1d ago' }
+                ],
+                tickets: {
+                    tickets: [
+                        { id: 'PROJ-125', summary: 'Add payment validation', status: 'Done', date: 'May 31' },
+                        { id: 'PROJ-124', summary: 'Fix user profile bug', status: 'Done', date: 'May 31' },
+                        { id: 'PROJ-123', summary: 'Update API endpoints', status: 'Done', date: 'May 30' },
+                        { id: 'PROJ-122', summary: 'Add unit tests', status: 'In Progress', date: 'May 29' },
+                        { id: 'PROJ-121', summary: 'Refactor auth service', status: 'In Progress', date: 'May 29' }
+                    ],
+                    summary: { done: 28, inProgress: 12, toDo: 5, blocked: 0 }
+                }
+            };
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            updateStats();
+            renderReleasesTable();
+            renderCommits();
+            renderTickets();
+            renderCharts();
+            renderTicketStatusBars();
+            updateDateRange();
+        }
+
+        function updateStats() {
+            const releases = dashboardData.releases;
+            const totalTickets = releases.reduce((sum, r) => sum + (r.tickets?.length || 0), 0);
+            const totalCommits = releases.reduce((sum, r) => sum + (r.commitCount || 0), 0);
+            const successful = releases.filter(r => r.status === 'Successful').length;
+            const successRate = releases.length ? ((successful / releases.length) * 100).toFixed(1) : 0;
+
+            document.getElementById('totalReleases').textContent = releases.length;
+            document.getElementById('totalTickets').textContent = totalTickets;
+            document.getElementById('totalCommits').textContent = totalCommits;
+            document.getElementById('successRate').textContent = `${successRate}%`;
+
+            document.getElementById('releasesTrend').innerHTML = '<i class="fas fa-arrow-up mr-1"></i> 20% from last month';
+            document.getElementById('ticketsTrend').innerHTML = '<i class="fas fa-arrow-up mr-1"></i> 15% from last month';
+            document.getElementById('commitsTrend').innerHTML = '<i class="fas fa-arrow-up mr-1"></i> 8% from last month';
+            document.getElementById('successTrend').innerHTML = '<i class="fas fa-arrow-up mr-1"></i> 2.1% from last month';
+        }
+
+        function renderReleasesTable() {
+            const tbody = document.getElementById('releasesTableBody');
+            tbody.innerHTML = dashboardData.releases.slice(0, 5).map(release => `
+                <tr class="table-row border-b border-gray-800">
+                    <td class="py-3">
+                        <a href="${CONFIG.repoUrl}/releases/tag/${release.tag}" class="text-blue-400 hover:underline">${release.tag}</a>
+                    </td>
+                    <td class="py-3 text-gray-400">${formatDate(release.date)}</td>
+                    <td class="py-3">
+                        ${(release.tickets || []).map(t => 
+                            `<a href="${CONFIG.jiraBaseUrl}/${t.id}" class="jira-link mr-1">${t.id}</a>`
+                        ).join(', ')}
+                    </td>
+                    <td class="py-3 text-center">${release.commitCount || 0}</td>
+                    <td class="py-3">
+                        <span class="text-gray-400"><i class="fas fa-code-branch mr-1"></i>${release.branch}</span>
+                    </td>
+                    <td class="py-3">
+                        <span class="status-badge status-${release.status.toLowerCase().replace(' ', '-')}">${release.status}</span>
+                    </td>
+                    <td class="py-3">
+                        <span class="env-badge env-${release.deployedTo?.toLowerCase()}">${release.deployedTo}</span>
+                    </td>
+                    <td class="py-3">
+                        <button class="text-gray-500 hover:text-white"><i class="fas fa-ellipsis-h"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderCommits() {
+            const container = document.getElementById('commitsContainer');
+            container.innerHTML = dashboardData.commits.slice(0, 5).map(commit => `
+                <div class="flex items-center justify-between py-2 border-b border-gray-800">
+                    <div class="flex items-center gap-3">
+                        <code class="text-blue-400 text-sm">${commit.sha}</code>
+                        <span class="text-sm">${commit.message}</span>
+                    </div>
+                    <div class="flex items-center gap-3 text-gray-500 text-sm">
+                        <span>${commit.author}</span>
+                        <span>${commit.date}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTickets() {
+            const container = document.getElementById('ticketsContainer');
+            container.innerHTML = dashboardData.tickets.tickets.slice(0, 5).map(ticket => `
+                <div class="flex items-center justify-between py-2 border-b border-gray-800">
+                    <div class="flex items-center gap-3">
+                        <a href="${CONFIG.jiraBaseUrl}/${ticket.id}" class="jira-link text-sm">${ticket.id}</a>
+                        <span class="text-sm">${ticket.summary}</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="status-badge status-${ticket.status.toLowerCase().replace(' ', '-')}">${ticket.status}</span>
+                        <span class="text-gray-500 text-sm">${ticket.date}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTicketStatusBars() {
+            const summary = dashboardData.tickets.summary;
+            const total = (summary.done || 0) + (summary.inProgress || 0) + (summary.toDo || 0) + (summary.blocked || 0);
+            
+            const statuses = [
+                { label: 'Done', value: summary.done || 0, color: '#3fb950' },
+                { label: 'In Progress', value: summary.inProgress || 0, color: '#58a6ff' },
+                { label: 'To Do', value: summary.toDo || 0, color: '#d29922' },
+                { label: 'Blocked', value: summary.blocked || 0, color: '#f85149' }
+            ];
+
+            const container = document.getElementById('ticketStatusBars');
+            container.innerHTML = statuses.map(s => {
+                const percent = total ? ((s.value / total) * 100).toFixed(0) : 0;
+                return `
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm text-gray-400 w-24">${s.label}</span>
+                        <div class="progress-bar flex-1">
+                            <div class="progress-fill" style="width: ${percent}%; background-color: ${s.color}"></div>
+                        </div>
+                        <span class="text-sm w-16 text-right">${s.value} (${percent}%)</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderCharts() {
+            // Releases Over Time Chart
+            const releasesCtx = document.getElementById('releasesChart').getContext('2d');
+            new Chart(releasesCtx, {
+                type: 'line',
+                data: {
+                    labels: ['May 1', 'May 8', 'May 15', 'May 22', 'May 31'],
+                    datasets: [{
+                        data: [2, 4, 3, 6, 8],
+                        borderColor: '#58a6ff',
+                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
+                        y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } }
+                    }
+                }
+            });
+
+            // Deployment Status Donut
+            const deployCtx = document.getElementById('deploymentChart').getContext('2d');
+            const successful = dashboardData.releases.filter(r => r.status === 'Successful').length;
+            const inProgress = dashboardData.releases.filter(r => r.status === 'In Progress').length;
+            const failed = dashboardData.releases.filter(r => r.status === 'Failed').length;
+
+            new Chart(deployCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Successful', 'In Progress', 'Failed'],
+                    datasets: [{
+                        data: [successful, inProgress, failed],
+                        backgroundColor: ['#3fb950', '#d29922', '#f85149'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    cutout: '70%',
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#8b949e', usePointStyle: true }
+                        }
+                    }
+                }
+            });
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function updateDateRange() {
+            const now = new Date();
+            const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            document.getElementById('dateRange').textContent = 
+                `${monthAgo.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})} - ${now.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})}`;
+        }
+
+        function refreshData() {
+            fetchData();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', fetchData);
+    </script>
+</body>
+</html>
