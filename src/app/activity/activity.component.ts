@@ -11,7 +11,7 @@ export class ActivityComponent implements OnInit {
   listData = [];
   constructor(private service :ProjService) { }
 
-  // added comments for test commit message
+  // added comments for test commit message for 26.5.x
   ngOnInit() {
       this.service.getImages().subscribe( (resp:any) => {
        for(let i =0; i< 25 ; i++){
