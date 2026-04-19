@@ -145,19 +145,19 @@ jobs:
 
           # Panels
           SUMMARY_PANEL=$(cat <<EOF
-<ac:structured-macro ac:name="panel">
-<ac:parameter ac:name="title">📊 Release Summary</ac:parameter>
-<ac:rich-text-body>
-<ul>
-<li>Done: $DONE</li>
-<li>In Progress: $INPROGRESS</li>
-<li>To Do: $TODO</li>
-<li>Blocked: $BLOCKED</li>
-</ul>
-</ac:rich-text-body>
-</ac:structured-macro>
-EOF
-)
+          <ac:structured-macro ac:name="panel">
+          <ac:parameter ac:name="title">📊 Release Summary</ac:parameter>
+          <ac:rich-text-body>
+          <ul>
+          <li>Done: $DONE</li>
+          <li>In Progress: $INPROGRESS</li>
+          <li>To Do: $TODO</li>
+          <li>Blocked: $BLOCKED</li>
+          </ul>
+          </ac:rich-text-body>
+          </ac:structured-macro>
+          EOF
+          )
 
           if [ "$BLOCKED" -gt 0 ] || [ "$TODO" -gt 0 ]; then
             STATUS_PANEL="<ac:structured-macro ac:name=\"panel\"><ac:parameter ac:name=\"title\">🚫 Release NOT Ready</ac:parameter></ac:structured-macro>"
@@ -187,22 +187,22 @@ EOF
           TABLE=$(cat jira_table.html)
 
           NEW_SECTION=$(cat <<EOF
-<hr/>
-<h2>🚀 Release $TAG</h2>
-<p><b>Date:</b> $(date)</p>
+          <hr/>
+          <h2>🚀 Release $TAG</h2>
+          <p><b>Date:</b> $(date)</p>
 
-$STATUS
+          $STATUS
 
-$SUMMARY
+          $SUMMARY
 
-<ac:structured-macro ac:name="expand">
-  <ac:parameter ac:name="title">📋 View Jira Tickets</ac:parameter>
-  <ac:rich-text-body>
-    $TABLE
-  </ac:rich-text-body>
-</ac:structured-macro>
-EOF
-)
+          <ac:structured-macro ac:name="expand">
+          <ac:parameter ac:name="title">📋 View Jira Tickets</ac:parameter>
+          <ac:rich-text-body>
+          $TABLE
+          </ac:rich-text-body>
+          </ac:structured-macro>
+          EOF
+           )
 
           RESPONSE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
             "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
