@@ -100,43 +100,87 @@ jobs:
       - name: Extract Jira IDs
         run: |
           grep -oiE '[A-Z]+-[0-9]+' commits.txt | sort -u > jira_ids.txt
-
-      # ✅ JIRA JSON + HTML
-      - name: Build Jira Table + JSON
+          
+      - name: Build Jira Table + JSON (Macro UI)
         id: jira
         run: |
-          echo "<table>" > jira_table.html
-          echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
+         echo "<table><tbody>" > jira_table.html
+         echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
 
-          echo "[]" > jira.json
+         echo "[]" > jira.json
 
-          while read ticket; do
+         DONE=0
+         INPROGRESS=0
+         TODO=0
+         BLOCKED=0
+            while read ticket; do
             RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-              -H "Accept: application/json" \
-              "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
+            -H "Accept: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
 
-            STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
-            ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
-            SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
+         STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
+         ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
+         SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
 
-            LINK="$JIRA_BASE_URL/browse/$ticket"
+         LINK="$JIRA_BASE_URL/browse/$ticket"
 
-            echo "<tr>
-              <td><a href=\"$LINK\">$ticket</a></td>
-              <td>$STATUS</td>
-              <td>$ASSIGNEE</td>
-            </tr>" >> jira_table.html
+          # 🎨 Status → Color mapping
+         if [ "$STATUS" = "Done" ]; then
+         COLOR="Green"; DONE=$((DONE+1))
+         elif [ "$STATUS" = "In Progress" ]; then
+         COLOR="Yellow"; INPROGRESS=$((INPROGRESS+1))
+         elif [ "$STATUS" = "To Do" ]; then
+            COLOR="Grey"; TODO=$((TODO+1))
+         else
+         COLOR="Red"; BLOCKED=$((BLOCKED+1))
+         fi
 
-            jq --arg id "$ticket" \
-               --arg summary "$SUMMARY" \
-               --arg status "$STATUS" \
-               '. += [{"id":$id,"summary":$summary,"status":$status}]' \
-               jira.json > tmp.json && mv tmp.json jira.json
+         STATUS_MACRO="<ac:structured-macro ac:name=\"status\">
+         <ac:parameter ac:name=\"title\">$STATUS</ac:parameter>
+         <ac:parameter ac:name=\"colour\">$COLOR</ac:parameter>
+         </ac:structured-macro>"
 
-          done < jira_ids.txt
+          echo "<tr>
+           <td><a href=\"$LINK\">$ticket</a></td>
+           <td>$STATUS_MACRO</td>
+          <td>$ASSIGNEE</td>
+          </tr>" >> jira_table.html
 
-          echo "</table>" >> jira_table.html
-          echo "jira_data=$(cat jira.json | jq -c .)" >> $GITHUB_OUTPUT
+          # 📊 Build summary panel (macro)
+          SUMMARY_PANEL="<ac:structured-macro ac:name=\"panel\">
+          <ac:parameter ac:name=\"title\">📊 Release Summary</ac:parameter>
+          <ac:parameter ac:name=\"bgColor\">#EAE6FF</ac:parameter>
+           <ac:rich-text-body>
+           <ul>
+             <li>✅ Done: $DONE</li>
+             <li>🟡 In Progress: $INPROGRESS</li>
+             <li>⚪ To Do: $TODO</li>
+             <li>❌ Blocked: $BLOCKED</li>
+           </ul>
+         </ac:rich-text-body>
+         </ac:structured-macro>"
+
+         # 🚨 Release status banner
+         if [ "$BLOCKED" -gt 0 ] || [ "$TODO" -gt 0 ]; then
+         STATUS_PANEL="<ac:structured-macro ac:name=\"panel\">
+         <ac:parameter ac:name=\"title\">🚫 Release NOT Ready</ac:parameter>
+         <ac:parameter ac:name=\"bgColor\">#FFEBE6</ac:parameter>
+         <ac:rich-text-body>
+          <p>Some tickets are not completed.</p>
+          </ac:rich-text-body>
+          </ac:structured-macro>"
+         else
+         STATUS_PANEL="<ac:structured-macro ac:name=\"panel\">
+          <ac:parameter ac:name=\"title\">✅ Release Ready</ac:parameter>
+          <ac:parameter ac:name=\"bgColor\">#E3FCEF</ac:parameter>
+           <ac:rich-text-body>
+            <p>All tickets are completed.</p>
+            </ac:rich-text-body>
+           </ac:structured-macro>"
+           fi
+               echo "jira_data=$(cat jira.json | jq -c .)" >> $GITHUB_OUTPUT
+               echo "summary_panel=$SUMMARY_PANEL" >> $GITHUB_OUTPUT
+               echo "status_panel=$STATUS_PANEL" >> $GITHUB_OUTPUT
 
       # ✅ DASHBOARD DATA
       - name: Create Dashboard Data
