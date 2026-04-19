@@ -159,12 +159,6 @@ jobs:
           EOF
           )
 
-          if [ "$BLOCKED" -gt 0 ] || [ "$TODO" -gt 0 ]; then
-            STATUS_PANEL="<ac:structured-macro ac:name=\"panel\"><ac:parameter ac:name=\"title\">🚫 Release NOT Ready</ac:parameter></ac:structured-macro>"
-          else
-            STATUS_PANEL="<ac:structured-macro ac:name=\"panel\"><ac:parameter ac:name=\"title\">✅ Release Ready</ac:parameter></ac:structured-macro>"
-          fi
-
           # SAFE OUTPUTS
           {
             echo "jira_data=$(cat jira.json | jq -c .)"
