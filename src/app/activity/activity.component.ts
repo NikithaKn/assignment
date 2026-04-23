@@ -12,6 +12,7 @@ export class ActivityComponent implements OnInit {
   constructor(private service :ProjService) { }
 
   // added comments for test commit message
+  // add second comment
   ngOnInit() {
       this.service.getImages().subscribe( (resp:any) => {
        for(let i =0; i< 25 ; i++){
