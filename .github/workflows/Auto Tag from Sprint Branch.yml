@@ -196,7 +196,7 @@ jobs:
             fi
 
             # ✅ Get Fix Versions
-            FIX=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[].name' | head -n1)
+            FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
       
             if [ -z "$FIX" ]; then
               echo "Skipping $ticket (no fixVersion)"
