@@ -113,25 +113,25 @@ jobs:
 
           while read ticket; do
             RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-  -H "Accept: application/json" \
-      "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=fixVersions,issuetype,parent,summary,status")
-    
-    echo "========== DEBUG $ticket =========="
-    echo "$RESPONSE" | jq '.fields.fixVersions'
-    echo "=================================="
-    
-    FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
-
-        if [ -z "$FIX_VERSION" ]; then
-          echo "Skipping $ticket (no fixVersion)"
-          continue
-        fi
-
-            STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
-            ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
-            SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
-
-            LINK="$JIRA_BASE_URL/browse/$ticket"
+               -H "Accept: application/json" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=fixVersions,issuetype,parent,summary,status")
+            
+            echo "========== DEBUG $ticket =========="
+            echo "$RESPONSE" | jq '.fields.fixVersions'
+            echo "=================================="
+            
+            FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
+        
+                if [ -z "$FIX_VERSION" ]; then
+                  echo "Skipping $ticket (no fixVersion)"
+                    continue
+                  fi
+          
+                      STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
+                      ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
+                      SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
+          
+                      LINK="$JIRA_BASE_URL/browse/$ticket"
 
             if [ "$STATUS" = "Done" ]; then
               COLOR="Green"; DONE=$((DONE+1))
@@ -150,16 +150,16 @@ jobs:
             jq --arg id "$ticket" --arg summary "$SUMMARY" --arg status "$STATUS" \
               '. += [{"id":$id,"summary":$summary,"status":$status}]' jira.json > tmp.json && mv tmp.json jira.json
 
-          done < jira_ids.txt
+             done < jira_ids.txt
 
-          echo "</tbody></table>" >> jira_table.html
+             echo "</tbody></table>" >> jira_table.html
 
           # Panels
-          SUMMARY_PANEL=$(cat <<EOF
-          <ac:structured-macro ac:name="panel">
-          <ac:parameter ac:name="title">📊 Release Summary</ac:parameter>
-          <ac:rich-text-body>
-          <ul>
+            SUMMARY_PANEL=$(cat <<EOF
+            <ac:structured-macro ac:name="panel">
+            <ac:parameter ac:name="title">📊 Release Summary</ac:parameter>
+            <ac:rich-text-body>
+            <ul>
           <li>Done: $DONE</li>
           <li>In Progress: $INPROGRESS</li>
           <li>To Do: $TODO</li>
