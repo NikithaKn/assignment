@@ -114,7 +114,8 @@ jobs:
           while read ticket; do
             RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
               -H "Accept: application/json" \
-              "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
+              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=fixVersions")
+               echo "$RESPONSE" | jq '.fields'
 
             STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
             ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
