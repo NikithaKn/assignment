@@ -113,9 +113,19 @@ jobs:
 
           while read ticket; do
             RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-              -H "Accept: application/json" \
-              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=fixVersions")
-               echo "$RESPONSE" | jq '.fields'
+  -H "Accept: application/json" \
+      "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=fixVersions,issuetype,parent,summary,status")
+    
+    echo "========== DEBUG $ticket =========="
+    echo "$RESPONSE" | jq '.fields.fixVersions'
+    echo "=================================="
+    
+    FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
+
+        if [ -z "$FIX_VERSION" ]; then
+          echo "Skipping $ticket (no fixVersion)"
+          continue
+        fi
 
             STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
             ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
