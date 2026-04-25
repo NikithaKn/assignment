@@ -169,6 +169,78 @@ jobs:
             echo "$STATUS_PANEL"
             echo "EOF"
           } >> $GITHUB_OUTPUT
+          
+      - name: Fetch Stories + Match FixVersion + Get Epic
+        id: epic
+        run: |
+         TAG="${{ steps.tag.outputs.new_tag }}"
+          BASE=$(echo "$TAG" | awk -F'.' '{print $1"."$2}')
+      
+          echo "Base version: $BASE"
+      
+          echo "[]" > release_notes.json
+
+            while read ticket; do
+              echo "Processing $ticket..."
+        
+              RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+                -H "Accept: application/json" \
+                "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
+        
+              TYPE=$(echo "$RESPONSE" | jq -r '.fields.issuetype.name')
+      
+            # ❌ Ignore defects/bugs
+            if [ "$TYPE" != "Story" ]; then
+              echo "Skipping $ticket (not a Story)"
+              continue
+            fi
+
+            # ✅ Get Fix Versions
+            FIX=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[].name' | head -n1)
+      
+            if [ -z "$FIX" ]; then
+              echo "Skipping $ticket (no fixVersion)"
+              continue
+            fi
+
+            FIX_BASE=$(echo "$FIX" | awk -F'.' '{print $1"."$2}')
+      
+            if [ "$FIX_BASE" != "$BASE" ]; then
+              echo "Skipping $ticket (fixVersion mismatch)"
+              continue
+            fi
+
+            # ✅ Get Epic Key (parent)
+            EPIC_KEY=$(echo "$RESPONSE" | jq -r '.fields.parent.key // empty')
+
+            if [ -z "$EPIC_KEY" ]; then
+              echo "No epic for $ticket"
+              continue
+            fi
+      
+            echo "Fetching Epic: $EPIC_KEY"
+      
+            EPIC_RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+              -H "Accept: application/json" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY")
+      
+            EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary')
+            EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '.fields.description.content[0].content[0].text // "No description"')
+
+              # ✅ Append to release notes JSON
+              jq --arg epic "$EPIC_KEY" \
+                 --arg summary "$EPIC_SUMMARY" \
+                 --arg desc "$EPIC_DESC" \
+                 '. += [{
+                    epic: $epic,
+                    summary: $summary,
+                    description: $desc
+                  }]' \
+                 release_notes.json > tmp.json && mv tmp.json release_notes.json
+        
+            done < jira_ids.txt
+        
+            echo "release_notes=$(cat release_notes.json | jq -c .)" >> $GITHUB_OUTPUT
 
       # ✅ CONFLUENCE WITH MACROS
       - name: Update Confluence Page
