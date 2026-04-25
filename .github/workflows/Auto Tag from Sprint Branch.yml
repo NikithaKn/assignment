@@ -195,6 +195,9 @@ jobs:
               echo "Skipping $ticket (not a Story)"
               continue
             fi
+            echo "Testing Jira Auth..."
+            curl -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+              "$JIRA_BASE_URL/rest/api/3/myself"
 
             # ✅ Get Fix Versions
             FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
