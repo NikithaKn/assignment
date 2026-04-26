@@ -4,11 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       sprint_branch:
-        description: 'Enter sprint branch (example: 26.sprint.x)'
         required: true
         type: string
       confluence_page_id:
-        description: 'Enter Confluence Page ID'
         required: true
         type: string
 
@@ -26,32 +24,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Validate sprint branch
-        run: |
-          git fetch origin
-          if ! git ls-remote --exit-code --heads origin ${{ github.event.inputs.sprint_branch }}; then
-            echo "Branch not found"
-            exit 1
-          fi
 
       - name: Checkout sprint branch
         run: |
+          git fetch origin
           git checkout -B ${{ github.event.inputs.sprint_branch }} origin/${{ github.event.inputs.sprint_branch }}
 
-      - name: Extract sprint prefix
-        id: sprint
-        run: |
-          PREFIX=$(echo "${{ github.event.inputs.sprint_branch }}" | sed 's/\.x$//')
-          echo "prefix=$PREFIX" >> $GITHUB_OUTPUT
-
-      - name: Generate next tag
+      - name: Generate tag
         id: tag
         run: |
-          PREFIX=${{ steps.sprint.outputs.prefix }}
+          PREFIX=$(echo "${{ github.event.inputs.sprint_branch }}" | sed 's/\.x$//')
           LAST_TAG=$(git tag --list "${PREFIX}.*" --sort=-v:refname | head -n 1)
 
           if [ -z "$LAST_TAG" ]; then
@@ -61,257 +43,114 @@ jobs:
             NEXT=$((LAST_NUM + 1))
           fi
 
-          NEW_TAG="${PREFIX}.${NEXT}"
-          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "new_tag=${PREFIX}.${NEXT}" >> $GITHUB_OUTPUT
 
-      - name: Get previous tag
-        id: prev
-        run: |
-          PREFIX=${{ steps.sprint.outputs.prefix }}
-          TAGS=$(git tag --list "${PREFIX}.*" --sort=-v:refname)
-          PREV=$(echo "$TAGS" | sed -n '2p')
-          echo "prev_tag=$PREV" >> $GITHUB_OUTPUT
-
-      # ✅ COMMITS
       - name: Get commits
-        id: commits
         run: |
-          PREV_TAG="${{ steps.prev.outputs.prev_tag }}"
-
-          if [ -z "$PREV_TAG" ]; then
-            git log -20 --pretty=format:"%h|%s|%an|%ar" --no-merges > commits.txt
-          else
-            git log "$PREV_TAG"..HEAD --pretty=format:"%h|%s|%an|%ar" --no-merges > commits.txt
-          fi
-
-          jq -R -s -c '
-            split("\n")[:-1] |
-            map(split("|")) |
-            map({sha: .[0], message: .[1], author: .[2], date: .[3]})
-          ' commits.txt > commits.json
-
-          echo "commits=$(cat commits.json)" >> $GITHUB_OUTPUT
+          git log -20 --pretty=format:"%h|%s" > commits.txt
 
       - name: Extract Jira IDs
         run: |
           grep -oiE '[A-Z]+-[0-9]+' commits.txt | sort -u > jira_ids.txt
 
-      # ✅ JIRA + MACRO UI
-      - name: Build Jira Table + Macro UI
+      # ✅ JIRA TABLE
+      - name: Build Jira Table
         id: jira
         run: |
-          set -e
-
           echo "<table><tbody>" > jira_table.html
-          echo "<tr><th>Ticket</th><th>Status</th><th>Assignee</th></tr>" >> jira_table.html
-          echo "[]" > jira.json
+          echo "<tr><th>Ticket</th><th>Status</th></tr>" >> jira_table.html
 
           DONE=0
-          INPROGRESS=0
-          TODO=0
-          BLOCKED=0
 
           while read ticket; do
             RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-               -H "Accept: application/json" \
-              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=fixVersions,issuetype,parent,summary,status")
-            
-            echo "========== DEBUG $ticket =========="
-            echo "$RESPONSE" | jq '.fields.fixVersions'
-            echo "$RESPONSE" | jq '.fields'
-            echo "=================================="
-                      STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
-                      ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
-                      SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
-          
-                      LINK="$JIRA_BASE_URL/browse/$ticket"
+              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=status")
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
+            LINK="$JIRA_BASE_URL/browse/$ticket"
 
             if [ "$STATUS" = "Done" ]; then
-              COLOR="Green"; DONE=$((DONE+1))
-            elif [ "$STATUS" = "In Progress" ]; then
-              COLOR="Yellow"; INPROGRESS=$((INPROGRESS+1))
-            elif [ "$STATUS" = "To Do" ]; then
-              COLOR="Grey"; TODO=$((TODO+1))
-            else
-              COLOR="Red"; BLOCKED=$((BLOCKED+1))
+              DONE=$((DONE+1))
             fi
 
-            STATUS_MACRO="<ac:structured-macro ac:name=\"status\"><ac:parameter ac:name=\"title\">$STATUS</ac:parameter><ac:parameter ac:name=\"colour\">$COLOR</ac:parameter></ac:structured-macro>"
+            echo "<tr><td><a href=\"$LINK\">$ticket</a></td><td>$STATUS</td></tr>" >> jira_table.html
+          done < jira_ids.txt
 
-            echo "<tr><td><a href=\"$LINK\">$ticket</a></td><td>$STATUS_MACRO</td><td>$ASSIGNEE</td></tr>" >> jira_table.html
+          echo "</tbody></table>" >> jira_table.html
 
-            jq --arg id "$ticket" --arg summary "$SUMMARY" --arg status "$STATUS" \
-              '. += [{"id":$id,"summary":$summary,"status":$status}]' jira.json > tmp.json && mv tmp.json jira.json
+          echo "done_count=$DONE" >> $GITHUB_OUTPUT
 
-             done < jira_ids.txt
-
-             echo "</tbody></table>" >> jira_table.html
-
-          # Panels
-            SUMMARY_PANEL=$(cat <<EOF
-            <ac:structured-macro ac:name="panel">
-            <ac:parameter ac:name="title">📊 Release Summary</ac:parameter>
-            <ac:rich-text-body>
-            <ul>
-          <li>Done: $DONE</li>
-          <li>In Progress: $INPROGRESS</li>
-          <li>To Do: $TODO</li>
-          <li>Blocked: $BLOCKED</li>
-          </ul>
-          </ac:rich-text-body>
-          </ac:structured-macro>
-          EOF
-          )
-
-          # SAFE OUTPUTS
-          {
-            echo "jira_data=$(cat jira.json | jq -c .)"
-            echo "summary_panel<<EOF"
-            echo "$SUMMARY_PANEL"
-            echo "EOF"
-            echo "status_panel<<EOF"
-            echo "$STATUS_PANEL"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-          
-      - name: Fetch Stories + Match FixVersion + Get Epic
+      # ✅ EPIC SUMMARY (CLEAN)
+      - name: Fetch Epic Summaries
         id: epic
         run: |
-         TAG="${{ steps.tag.outputs.new_tag }}"
-          BASE=$(echo "$TAG" | awk -F'.' '{print $1"."$2}')
-      
-          echo "Base version: $BASE"
-      
           echo "[]" > release_notes.json
 
-            while read ticket; do
-              echo "Processing $ticket..."
-        
-              RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-                -H "Accept: application/json" \
-                "$JIRA_BASE_URL/rest/api/3/issue/$ticket")
-        
-              TYPE=$(echo "$RESPONSE" | jq -r '.fields.issuetype.name')
-      
-            # ❌ Ignore defects/bugs
+          while read ticket; do
+            RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=issuetype,parent")
+
+            TYPE=$(echo "$RESPONSE" | jq -r '.fields.issuetype.name')
+
             if [ "$TYPE" != "Story" ]; then
-              echo "Skipping $ticket (not a Story)"
-              continue
-            fi
-            echo "Testing Jira Auth..."
-            curl -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-              "$JIRA_BASE_URL/rest/api/3/myself"
-
-            # ✅ Get Fix Versions
-            FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
-                          echo "========== DEBUG $ticket =========="
-              echo "$RESPONSE" | jq '.fields.fixVersions'
-              echo "=================================="
-      
-            if [ -z "$FIX" ]; then
-              echo "Skipping $ticket (no fixVersion)"
               continue
             fi
 
-            FIX_BASE=$(echo "$FIX" | awk -F'.' '{print $1"."$2}')
-      
-            if [ "$FIX_BASE" != "$BASE" ]; then
-              echo "Skipping $ticket (fixVersion mismatch)"
+            EPIC_KEY=$(echo "$RESPONSE" | jq -r '.fields.parent.key // empty')
+
+            if [ -z "$EPIC_KEY" ]; then
               continue
             fi
 
-          - name: Fetch Stories → Get Epic → Generate Summary
-            id: epic
-            run: |
-                  echo "[]" > release_notes.json
-              
-                  while read ticket; do
-                    echo "Processing $ticket..."
-              
-                    RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-                      -H "Accept: application/json" \
-                      "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=issuetype,parent,summary")
-              
-                    TYPE=$(echo "$RESPONSE" | jq -r '.fields.issuetype.name')
-              
-                    # ✅ Only Stories
-                    if [ "$TYPE" != "Story" ]; then
-                      echo "Skipping $ticket (not a Story)"
-                      continue
-                    fi
-              
-                    EPIC_KEY=$(echo "$RESPONSE" | jq -r '.fields.parent.key // empty')
-              
-                    if [ -z "$EPIC_KEY" ]; then
-                      echo "No epic for $ticket"
-                      continue
-                    fi
-              
-                    echo "Fetching Epic: $EPIC_KEY"
-              
-                    EPIC_RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-                      -H "Accept: application/json" \
-                      "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY?fields=summary,description")
-              
-                    EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary')
+            EPIC_RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+              "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY?fields=summary,description")
 
-              # ✅ Extract plain text safely from Atlassian doc format
-              EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '
-                def extract_text:
-                  if type=="object" and has("content") then
-                    .content[] | extract_text
-                  elif type=="object" and has("text") then
-                    .text
-                  else empty end;
-                .fields.description | extract_text' | tr '\n' ' ')
+            EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary')
 
-             # ✅ Create crisp short summary (first 20 words)
-                SHORT_DESC=$(echo "$EPIC_DESC" | awk '{for(i=1;i<=20 && i<=NF;i++) printf $i" ";}')
-          
-                jq --arg epic "$EPIC_KEY" \
-                   --arg summary "$EPIC_SUMMARY" \
-                   --arg short "$SHORT_DESC" \
-                   '. += [{
-                      epic: $epic,
-                      summary: $summary,
-                      short_description: $short
-                    }]' \
-                   release_notes.json > tmp.json && mv tmp.json release_notes.json
+            EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '
+              def extract:
+                if type=="object" and has("content") then
+                  .content[] | extract
+                elif type=="object" and has("text") then
+                  .text
+                else empty end;
+              .fields.description | extract' | tr '\n' ' ')
 
-                  done < jira_ids.txt
+            SHORT=$(echo "$EPIC_DESC" | awk '{for(i=1;i<=15 && i<=NF;i++) printf $i" ";}')
 
-                       echo "release_notes=$(cat release_notes.json | jq -c .)" >> $GITHUB_OUTPUT
+            jq --arg epic "$EPIC_KEY" --arg short "$SHORT" \
+              '. += [{"epic":$epic,"short":$short}]' \
+              release_notes.json > tmp.json && mv tmp.json release_notes.json
 
-        
-              
+          done < jira_ids.txt
 
-      # ✅ CONFLUENCE WITH MACROS
-      - name: Update Confluence Page
+          echo "epics=$(cat release_notes.json | jq -c .)" >> $GITHUB_OUTPUT
+
+      # ✅ CONFLUENCE
+      - name: Update Confluence
         run: |
           PAGE_ID=${{ github.event.inputs.confluence_page_id }}
           TAG=${{ steps.tag.outputs.new_tag }}
 
-          SUMMARY='${{ steps.jira.outputs.summary_panel }}'
-          STATUS='${{ steps.jira.outputs.status_panel }}'
           TABLE=$(cat jira_table.html)
+          EPICS='${{ steps.epic.outputs.epics }}'
+
+          EPIC_HTML=$(echo "$EPICS" | jq -r '
+            "<ul>" +
+            (map("<li><b>" + .epic + "</b>: " + .short + "</li>") | join("")) +
+            "</ul>"
+          ')
 
           NEW_SECTION=$(cat <<EOF
-          <hr/>
-          <h2>🚀 Release $TAG</h2>
-          <p><b>Date:</b> $(date)</p>
+<hr/>
+<h2>Release $TAG</h2>
 
-          $STATUS
+<h3>Epic Highlights</h3>
+$EPIC_HTML
 
-          $SUMMARY
-
-          <ac:structured-macro ac:name="expand">
-          <ac:parameter ac:name="title">📋 View Jira Tickets</ac:parameter>
-          <ac:rich-text-body>
-          $TABLE
-          </ac:rich-text-body>
-          </ac:structured-macro>
-          EOF
-           )
+$TABLE
+EOF
+)
 
           RESPONSE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
             "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
