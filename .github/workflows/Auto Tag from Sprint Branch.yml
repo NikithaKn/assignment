@@ -118,6 +118,7 @@ jobs:
             
             echo "========== DEBUG $ticket =========="
             echo "$RESPONSE" | jq '.fields.fixVersions'
+            echo "$RESPONSE" | jq '.fields'
             echo "=================================="
             
             FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
