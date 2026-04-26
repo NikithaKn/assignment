@@ -130,7 +130,7 @@ jobs:
 
           TABLE=$(cat jira_table.html)
 
-          EPICS_JSON='${{ steps.epic.outputs.epics }}'
+          EPICS_JSON=$(printf '%s' '${{ steps.epic.outputs.epics }}')
 
           EPIC_HTML=$(echo "$EPICS_JSON" | jq -r '
             "<ul>" +
