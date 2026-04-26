@@ -133,8 +133,7 @@ jobs:
 
           EPICS=$(cat <<'EOF'
             ${{ steps.epic.outputs.epics }}
-            EOF
-            )
+          EOF)
             
                       EPIC_HTML=$(echo "$EPICS" | jq -r '
                         "<ul>" +
