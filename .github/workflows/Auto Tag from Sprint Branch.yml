@@ -120,14 +120,6 @@ jobs:
             echo "$RESPONSE" | jq '.fields.fixVersions'
             echo "$RESPONSE" | jq '.fields'
             echo "=================================="
-            
-            FIX_VERSION=$(echo "$RESPONSE" | jq -r '.fields.fixVersions[0].name // empty')
-        
-                if [ -z "$FIX_VERSION" ]; then
-                  echo "Skipping $ticket (no fixVersion)"
-                    continue
-                  fi
-          
                       STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
                       ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
                       SUMMARY=$(echo "$RESPONSE" | jq -r '.fields.summary')
@@ -228,37 +220,70 @@ jobs:
               continue
             fi
 
-            # ✅ Get Epic Key (parent)
-            EPIC_KEY=$(echo "$RESPONSE" | jq -r '.fields.parent.key // empty')
+          - name: Fetch Stories → Get Epic → Generate Summary
+            id: epic
+            run: |
+                  echo "[]" > release_notes.json
+              
+                  while read ticket; do
+                    echo "Processing $ticket..."
+              
+                    RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+                      -H "Accept: application/json" \
+                      "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=issuetype,parent,summary")
+              
+                    TYPE=$(echo "$RESPONSE" | jq -r '.fields.issuetype.name')
+              
+                    # ✅ Only Stories
+                    if [ "$TYPE" != "Story" ]; then
+                      echo "Skipping $ticket (not a Story)"
+                      continue
+                    fi
+              
+                    EPIC_KEY=$(echo "$RESPONSE" | jq -r '.fields.parent.key // empty')
+              
+                    if [ -z "$EPIC_KEY" ]; then
+                      echo "No epic for $ticket"
+                      continue
+                    fi
+              
+                    echo "Fetching Epic: $EPIC_KEY"
+              
+                    EPIC_RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
+                      -H "Accept: application/json" \
+                      "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY?fields=summary,description")
+              
+                    EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary')
 
-            if [ -z "$EPIC_KEY" ]; then
-              echo "No epic for $ticket"
-              continue
-            fi
-      
-            echo "Fetching Epic: $EPIC_KEY"
-      
-            EPIC_RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_API_TOKEN \
-              -H "Accept: application/json" \
-              "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY")
-      
-            EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary')
-            EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '.fields.description.content[0].content[0].text // "No description"')
+              # ✅ Extract plain text safely from Atlassian doc format
+              EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '
+                def extract_text:
+                  if type=="object" and has("content") then
+                    .content[] | extract_text
+                  elif type=="object" and has("text") then
+                    .text
+                  else empty end;
+                .fields.description | extract_text' | tr '\n' ' ')
 
-              # ✅ Append to release notes JSON
-              jq --arg epic "$EPIC_KEY" \
-                 --arg summary "$EPIC_SUMMARY" \
-                 --arg desc "$EPIC_DESC" \
-                 '. += [{
-                    epic: $epic,
-                    summary: $summary,
-                    description: $desc
-                  }]' \
-                 release_notes.json > tmp.json && mv tmp.json release_notes.json
+             # ✅ Create crisp short summary (first 20 words)
+                SHORT_DESC=$(echo "$EPIC_DESC" | awk '{for(i=1;i<=20 && i<=NF;i++) printf $i" ";}')
+          
+                jq --arg epic "$EPIC_KEY" \
+                   --arg summary "$EPIC_SUMMARY" \
+                   --arg short "$SHORT_DESC" \
+                   '. += [{
+                      epic: $epic,
+                      summary: $summary,
+                      short_description: $short
+                    }]' \
+                   release_notes.json > tmp.json && mv tmp.json release_notes.json
+
+                  done < jira_ids.txt
+
+                       echo "release_notes=$(cat release_notes.json | jq -c .)" >> $GITHUB_OUTPUT
+
         
-            done < jira_ids.txt
-        
-            echo "release_notes=$(cat release_notes.json | jq -c .)" >> $GITHUB_OUTPUT
+              
 
       # ✅ CONFLUENCE WITH MACROS
       - name: Update Confluence Page
