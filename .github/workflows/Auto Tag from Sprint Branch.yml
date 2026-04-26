@@ -123,51 +123,51 @@ jobs:
 
           echo "epics=$(cat release_notes.json | jq -c .)" >> $GITHUB_OUTPUT
 
-      # ✅ Update Confluence
-      - name: Update Confluence
-        run: |
-          PAGE_ID=${{ github.event.inputs.confluence_page_id }}
-          TAG=${{ steps.tag.outputs.new_tag }}
-
-          TABLE=$(cat jira_table.html)
-
-          EPICS=$(cat <<'EOF'
-            ${{ steps.epic.outputs.epics }}
-          EOF)
-            
-                      EPIC_HTML=$(echo "$EPICS" | jq -r '
-                        "<ul>" +
-                        (map("<li><b>" + .epic + "</b>: " + .short + "</li>") | join("")) +
-                        "</ul>"
-                      ')
-
-          NEW_SECTION=$(cat <<EOF
-              <hr/>
-              <h2>Release $TAG</h2>
-              <p><b>Date:</b> $(date)</p>
-              
-              <h3>✨ Epic Highlights</h3>
-              $EPIC_HTML
-              
-              <h3>📋 Jira Tickets</h3>
-              $TABLE
-                EOF
-                )
-                
-                          RESPONSE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
-                            "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
-                
-                          VERSION=$(echo "$RESPONSE" | jq -r '.version.number')
-                          NEW_VERSION=$((VERSION + 1))
-                          EXISTING=$(echo "$RESPONSE" | jq -r '.body.storage.value')
-                
-                          FINAL="$NEW_SECTION $EXISTING"
-                          ESCAPED=$(printf '%s' "$FINAL" | jq -Rs .)
-                
-                          curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
-                            -X PUT "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-                            -H "Content-Type: application/json" \
-                            -d "{\"id\":\"$PAGE_ID\",\"type\":\"page\",\"title\":\"Release Notes\",\"version\":{\"number\":$NEW_VERSION},\"body\":{\"storage\":{\"value\":$ESCAPED,\"representation\":\"storage\"}}}"
+       - name: Update Confluence
+         run: |
+            PAGE_ID=${{ github.event.inputs.confluence_page_id }}
+                                        TAG=${{ steps.tag.outputs.new_tag }}
+                                    
+                                        TABLE=$(cat jira_table.html)
+                                    
+                                        EPICS=$(cat <<'EOF'
+                                    ${{ steps.epic.outputs.epics }}
+                                    EOF
+                                    )
+                                    
+                                        EPIC_HTML=$(echo "$EPICS" | jq -r '
+                                          "<ul>" +
+                                          (map("<li><b>" + .epic + "</b>: " + .short + "</li>") | join("")) +
+                                          "</ul>"
+                                        ')
+                                    
+                                        NEW_SECTION=$(cat <<EOF
+                                    <hr/>
+                                    <h2>Release $TAG</h2>
+                                    <p><b>Date:</b> $(date)</p>
+                                    
+                                    <h3>✨ Epic Highlights</h3>
+                                    $EPIC_HTML
+                                    
+                                    <h3>📋 Jira Tickets</h3>
+                                    $TABLE
+                                    EOF
+                                    )
+                                    
+                                        RESPONSE=$(curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+                                          "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID?expand=body.storage,version")
+                                    
+                                        VERSION=$(echo "$RESPONSE" | jq -r '.version.number')
+                                        NEW_VERSION=$((VERSION + 1))
+                                        EXISTING=$(echo "$RESPONSE" | jq -r '.body.storage.value')
+                                    
+                                        FINAL="$NEW_SECTION $EXISTING"
+                                        ESCAPED=$(printf '%s' "$FINAL" | jq -Rs .)
+                                    
+                                        curl -s -u $CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN \
+                                          -X PUT "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
+                                          -H "Content-Type: application/json" \
+                                          -d "{\"id\":\"$PAGE_ID\",\"type\":\"page\",\"title\":\"Release Notes\",\"version\":{\"number\":$NEW_VERSION},\"body\":{\"storage\":{\"value\":$ESCAPED,\"representation\":\"storage\"}}}"
 
       # ✅ Create tag
       - name: Create tag
