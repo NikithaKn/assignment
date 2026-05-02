@@ -168,3 +168,45 @@ jobs:
         run: |
           git tag ${{ steps.tag.outputs.new_tag }}
           git push origin ${{ steps.tag.outputs.new_tag }}
+
+      - name: Build Confluence URL
+        run: |
+                CONFLUENCE_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${{ github.event.inputs.confluence_page_id }}"
+                echo "CONFLUENCE_URL=$CONFLUENCE_URL" >> $GITHUB_ENV
+                
+      - name: Send Teams Notification
+        if: success()
+        env:
+            TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+            CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          run: |
+            TAG_NAME="${{ steps.tag.outputs.new_tag }}"
+            PAGE_ID="${{ github.event.inputs.confluence_page_id }}"
+            REPO="${{ github.repository }}"
+        
+            CONFLUENCE_URL="$CONFLUENCE_BASE_URL/wiki/spaces/~/pages/$PAGE_ID"
+            DASHBOARD_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+        
+            MESSAGE=$(cat <<EOF
+        🚀 Release Created: $TAG_NAME
+              
+        📄 Confluence Updated:
+              $CONFLUENCE_URL
+              
+        📊 Dashboard:
+              $DASHBOARD_URL
+              
+        🔗 Repo:
+              https://github.com/$REPO
+              
+        🔖 Tag:
+              $TAG_NAME
+              EOF
+              )
+              
+      # Convert to JSON safely
+                  JSON=$(jq -n --arg text "$MESSAGE" '{text: $text}')
+              
+                  curl -H "Content-Type: application/json" \
+                       -d "$JSON" \
+                       "$TEAMS_WEBHOOK_URL"
