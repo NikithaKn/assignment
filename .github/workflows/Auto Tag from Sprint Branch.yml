@@ -182,7 +182,7 @@ jobs:
         run: |
               TAG_NAME="${{ steps.tag.outputs.new_tag }}"
           
-              cat > payload.json <<EOF {
+              cat <<EOF > payload.json {
                "type": "message",
                "attachments": [
               {
