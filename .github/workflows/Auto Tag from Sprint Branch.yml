@@ -182,7 +182,8 @@ jobs:
         run: |
               TAG_NAME="${{ steps.tag.outputs.new_tag }}"
           
-              cat <<EOF > payload.json {
+              cat <<EOF > payload.json
+              {
                "type": "message",
                "attachments": [
               {
@@ -204,7 +205,9 @@ jobs:
                     }
                   ]
                 }
-              }]}
+              }
+              ]
+              }
               EOF
           
               curl --location --request POST "$TEAMS_WEBHOOK_URL" \
