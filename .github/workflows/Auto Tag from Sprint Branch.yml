@@ -175,11 +175,38 @@ jobs:
                 echo "CONFLUENCE_URL=$CONFLUENCE_URL" >> $GITHUB_ENV
                 
       - name: Send Teams Notification
+        if: success()
+        
+        env:
+         TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
-                TAG_NAME="${{ steps.tag.outputs.new_tag }}"
-            
-                MESSAGE="🚀 Release Created: $TAG_NAME"
-            
-                curl -H "Content-Type: application/json" \
-                     -d "{\"text\":\"$MESSAGE\"}" \
-                     "$TEAMS_WEBHOOK_URL"
+              TAG_NAME="${{ steps.tag.outputs.new_tag }}"
+          
+              cat > payload.json <<EOF {
+               "type": "message",
+               "attachments": [
+              {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                  "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  "type": "AdaptiveCard",
+                  "version": "1.4",
+                  "body": [
+                    {
+                      "type": "TextBlock",
+                      "size": "Large",
+                      "weight": "Bolder",
+                      "text": "🚀 Release Created"
+                    },
+                    {
+                      "type": "TextBlock",
+                      "text": "Tag: $TAG_NAME"
+                    }
+                  ]
+                }
+              }]}
+              EOF
+          
+              curl --location --request POST "$TEAMS_WEBHOOK_URL" \
+                --header "Content-Type: application/json" \
+                --data @payload.json
