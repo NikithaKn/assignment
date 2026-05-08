@@ -1,0 +1,15 @@
+{
+  "totalReleases": 12,
+  "totalTickets": 45,
+  "totalCommits": 128,
+  "successRate": 98,
+
+  "releases": [
+    {
+      "tag": "v1.0.0",
+      "date": "2026-05-08",
+      "tickets": 12,
+      "confluence": "https://example.atlassian.net/wiki/page"
+    }
+  ]
+}
