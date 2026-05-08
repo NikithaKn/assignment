@@ -194,6 +194,14 @@ jobs:
               ]
             }
             EOF
+      - name: Commit Dashboard Changes
+        run: |
+              git config user.name "github-actions"
+              git config user.email "github-actions@github.com"
+          
+              git add docs/data/releases.json
+              git commit -m "Update release dashboard"
+              git push
                 
       - name: Send Teams Notification
         if: success()
