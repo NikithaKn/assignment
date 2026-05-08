@@ -175,42 +175,11 @@ jobs:
                 echo "CONFLUENCE_URL=$CONFLUENCE_URL" >> $GITHUB_ENV
                 
       - name: Send Teams Notification
-        if: success()
-        env:
-         TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-         CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
         run: |
-            set -e
-        
-            TAG_NAME="${{ steps.tag.outputs.new_tag }}"
-            PAGE_ID="${{ github.event.inputs.confluence_page_id }}"
-            REPO="${{ github.repository }}"
-            OWNER="${{ github.repository_owner }}"
-            REPO_NAME="${{ github.event.repository.name }}"
-        
-            CONFLUENCE_URL="$CONFLUENCE_BASE_URL/wiki/pages/viewpage.action?pageId=$PAGE_ID"
-            DASHBOARD_URL="https://$OWNER.github.io/$REPO_NAME/"
-    
-                MESSAGE=$(cat <<EOF
-                Release Created: $TAG_NAME
-        
-              Confluence:
-              $CONFLUENCE_URL
-              
-              Dashboard:
-              $DASHBOARD_URL
-              
-              Repo:
-              https://github.com/$REPO
-              
-              Tag:
-              $TAG_NAME
-              EOF
-              )
-               
-               jq -Rs '.' <<< "$MESSAGE" > payload.json
-                echo "{\"text\": $(cat payload.json)}" > final.json
+                TAG_NAME="${{ steps.tag.outputs.new_tag }}"
             
-                curl -X POST "$TEAMS_WEBHOOK_URL" \
-                  -H "Content-Type: application/json" \
-                  -d @final.json
+                MESSAGE="🚀 Release Created: $TAG_NAME"
+            
+                curl -H "Content-Type: application/json" \
+                     -d "{\"text\":\"$MESSAGE\"}" \
+                     "$TEAMS_WEBHOOK_URL"
