@@ -179,8 +179,15 @@ jobs:
         
         env:
          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+         CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+
         run: |
               TAG_NAME="${{ steps.tag.outputs.new_tag }}"
+              PAGE_ID="${{ github.event.inputs.confluence_page_id }}"
+
+              DASHBOARD_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+
+              CONFLUENCE_URL="$CONFLUENCE_BASE_URL/pages/viewpage.action?pageId=$PAGE_ID"
           
               cat <<EOF > payload.json
               {
@@ -192,23 +199,36 @@ jobs:
                   "\$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                   "type": "AdaptiveCard",
                   "version": "1.4",
-                  "body": [
-                    {
-                      "type": "TextBlock",
-                      "size": "Large",
-                      "weight": "Bolder",
-                      "text": "🚀 Release Created"
-                    },
-                    {
-                      "type": "TextBlock",
-                      "text": "Tag: $TAG_NAME"
-                    }
-                  ]
-                }
-              }
-              ]
-              }
-              EOF
+                          "body": [
+                                    {
+                                      "type": "TextBlock",
+                                      "size": "Large",
+                                      "weight": "Bolder",
+                                      "text": "🚀 Release Successfully Created"
+                                    },
+                                    {
+                                      "type": "TextBlock",
+                                      "text": "Tag: $TAG_NAME"
+                                    }
+                                  ],
+                                  "actions": [
+                                    {
+                                      "type": "Action.OpenUrl",
+                                      "title": "📄 Confluence",
+                                      "url": "$CONFLUENCE_URL"
+                                    },
+                                    {
+                                      "type": "Action.OpenUrl",
+                                      "title": "📊 Dashboard",
+                                      "url": "$DASHBOARD_URL"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                          EOF
+
           
               curl --location --request POST "$TEAMS_WEBHOOK_URL" \
                 --header "Content-Type: application/json" \
