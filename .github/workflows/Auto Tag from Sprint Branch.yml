@@ -173,6 +173,27 @@ jobs:
         run: |
                 CONFLUENCE_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${{ github.event.inputs.confluence_page_id }}"
                 echo "CONFLUENCE_URL=$CONFLUENCE_URL" >> $GITHUB_ENV
+      - name: Update Dashboard JSON
+        run: |
+            mkdir -p docs/data
+        
+            cat > docs/releases.json <<EOF
+            {
+              "totalReleases": 13,
+              "totalTickets": 52,
+              "totalCommits": 140,
+              "successRate": 99,
+        
+              "releases": [
+                {
+                  "tag": "${{ steps.tag.outputs.new_tag }}",
+                  "date": "$(date +%Y-%m-%d)",
+                  "tickets": 15,
+                  "confluence": "${{ secrets.CONFLUENCE_URL }}"
+                }
+              ]
+            }
+            EOF
                 
       - name: Send Teams Notification
         if: success()
@@ -233,3 +254,4 @@ jobs:
             curl --location --request POST "$TEAMS_WEBHOOK_URL" \
               --header "Content-Type: application/json" \
               --data @payload.json
+              
