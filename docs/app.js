@@ -1,6 +1,6 @@
 async function loadDashboard() {
 
-  const response = await fetch('./data/releases.json');
+  const response = await fetch('./releases.json');
   const data = await response.json();
 
   document.getElementById('releaseCount').innerText =
