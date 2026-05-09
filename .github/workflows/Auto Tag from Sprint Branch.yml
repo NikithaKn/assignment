@@ -177,7 +177,7 @@ jobs:
         run: |
             mkdir -p docs/data
         
-            cat > docs/releases.json <<EOF
+            cat > docs/data/releases.json <<EOF
             {
               "totalReleases": 13,
               "totalTickets": 52,
@@ -199,7 +199,7 @@ jobs:
               git config user.name "github-actions"
               git config user.email "github-actions@github.com"
           
-              git add docs/releases.json
+              git add docs/data/releases.json
               git commit -m "Update release dashboard"
               git push
                 
