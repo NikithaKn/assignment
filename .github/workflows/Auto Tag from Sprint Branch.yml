@@ -48,6 +48,145 @@ jobs:
           fi
 
           echo "new_tag=${PREFIX}.${NEXT}" >> "$GITHUB_OUTPUT"
+      # ✅ Notify Release Freeze Window Started
+      - name: Notify Release Freeze Window
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+        run: |
+          TAG_NAME="${{ steps.tag.outputs.new_tag }}"
+
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          jq -n \
+            --arg tag "$TAG_NAME" \
+            --arg branch "${{ github.event.inputs.sprint_branch }}" \
+            --arg run "$RUN_URL" \
+            '{
+              type: "message",
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.4",
+                    body: [
+                      {
+                        type: "TextBlock",
+                        size: "Large",
+                        weight: "Bolder",
+                        text: "⏳ Release Freeze Window Started"
+                      },
+                      {
+                        type: "TextBlock",
+                        text: ("Upcoming Tag: " + $tag)
+                      },
+                      {
+                        type: "TextBlock",
+                        text: ("Branch: " + $branch)
+                      },
+                      {
+                        type: "TextBlock",
+                        wrap: true,
+                        text: "Tag cut will happen after 20 mins.\nIf hotfix PRs are still open against this branch, release will wait automatically."
+                      }
+                    ],
+                    actions: [
+                      {
+                        type: "Action.OpenUrl",
+                        title: "View Workflow",
+                        url: $run
+                      }
+                    ]
+                  }
+                }
+              ]
+            }' > payload.json
+
+          curl --location --request POST "$TEAMS_WEBHOOK_URL" \
+            --header "Content-Type: application/json" \
+            --data @payload.json
+            
+      # ✅ Initial Release Hold
+      - name: Initial Release Hold
+        run: sleep 1200
+        
+      # ✅ Refresh branch after hotfix merges
+      - name: Refresh sprint branch
+        run: |
+          git fetch origin
+          git checkout "${{ github.event.inputs.sprint_branch }}"
+          git reset --hard "origin/${{ github.event.inputs.sprint_branch }}"
+      # ✅ Wait Until Hotfix PRs Are Merged
+      - name: Wait Until Hotfix PRs Are Merged
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+        run: |
+
+          while true
+          do
+            COUNT=$(gh pr list \
+              --base "${{ github.event.inputs.sprint_branch }}" \
+              --state open \
+              --json number,title \
+              --jq 'length')
+
+            echo "Open PR Count: $COUNT"
+
+            if [ "$COUNT" -eq 0 ]; then
+              echo "No open PRs remaining"
+              break
+            fi
+
+            echo "Open PRs found. Waiting another 10 mins..."
+
+            jq -n \
+              --arg count "$COUNT" \
+              --arg branch "${{ github.event.inputs.sprint_branch }}" \
+              '{
+                type: "message",
+                attachments: [
+                  {
+                    contentType: "application/vnd.microsoft.card.adaptive",
+                    content: {
+                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                      type: "AdaptiveCard",
+                      version: "1.4",
+                      body: [
+                        {
+                          type: "TextBlock",
+                          size: "Medium",
+                          weight: "Bolder",
+                          text: "⏳ Release Hold Extended"
+                        },
+                        {
+                          type: "TextBlock",
+                          text: ("Open PRs detected against " + $branch)
+                        },
+                        {
+                          type: "TextBlock",
+                          text: ("Current Open PR Count: " + $count)
+                        },
+                        {
+                          type: "TextBlock",
+                          wrap: true,
+                          text: "Tag cut will continue automatically once PRs are merged."
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }' > payload.json
+
+            curl --location --request POST "$TEAMS_WEBHOOK_URL" \
+              --header "Content-Type: application/json" \
+              --data @payload.json
+
+            sleep 600
+          done
 
       # ✅ Get commits
       - name: Get commits
