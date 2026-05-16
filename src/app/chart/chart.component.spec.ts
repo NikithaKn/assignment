@@ -5,7 +5,7 @@ import { ChartComponent } from './chart.component';
 describe('ChartComponent', () => {
   let component: ChartComponent;
   let fixture: ComponentFixture<ChartComponent>;
-
+  // KAN-6: Second ticket changes
   beforeEach(async(() => {
     TestBed.configureTestingModule({
       declarations: [ ChartComponent ]
