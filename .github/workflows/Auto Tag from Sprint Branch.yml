@@ -48,6 +48,7 @@ jobs:
           fi
 
           echo "new_tag=${PREFIX}.${NEXT}" >> "$GITHUB_OUTPUT"
+
       # ✅ Notify Release Freeze Window Started
       - name: Notify Release Freeze Window
         env:
@@ -107,17 +108,18 @@ jobs:
           curl --location --request POST "$TEAMS_WEBHOOK_URL" \
             --header "Content-Type: application/json" \
             --data @payload.json
-            
+
       # ✅ Initial Release Hold
       - name: Initial Release Hold
         run: sleep 120
-        
+
       # ✅ Refresh branch after hotfix merges
       - name: Refresh sprint branch
         run: |
           git fetch origin
           git checkout "${{ github.event.inputs.sprint_branch }}"
           git reset --hard "origin/${{ github.event.inputs.sprint_branch }}"
+
       # ✅ Wait Until Hotfix PRs Are Merged
       - name: Wait Until Hotfix PRs Are Merged
         env:
@@ -198,7 +200,7 @@ jobs:
         run: |
           grep -oiE '[A-Z]+-[0-9]+' commits.txt | sort -u > jira_ids.txt || true
 
-      # ✅ Build Jira Table
+      # ✅ Build Jira Table (HTML for Confluence — unchanged)
       - name: Build Jira Table
         run: |
           echo "<table><tbody>" > jira_table.html
@@ -217,6 +219,51 @@ jobs:
           done < jira_ids.txt
 
           echo "</tbody></table>" >> jira_table.html
+
+      # ✅ Build rich Jira JSON for the dashboard (replaces old table-only approach)
+      - name: Build Jira JSON for Dashboard
+        id: jira
+        run: |
+          echo "[]" > tickets.json
+
+          while read -r ticket; do
+            [ -z "$ticket" ] && continue
+
+            RESPONSE=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=summary,status,issuetype,priority,assignee")
+
+            # Skip tickets that returned an error (e.g. access denied)
+            ERROR=$(echo "$RESPONSE" | jq -r '.errorMessages[0] // empty')
+            if [ -n "$ERROR" ]; then
+              echo "Skipping $ticket: $ERROR"
+              continue
+            fi
+
+            SUMMARY=$(echo  "$RESPONSE" | jq -r '.fields.summary        // "—"')
+            STATUS=$(echo   "$RESPONSE" | jq -r '.fields.status.name    // "Unknown"')
+            TYPE=$(echo     "$RESPONSE" | jq -r '.fields.issuetype.name // "Task"')
+            PRIORITY=$(echo "$RESPONSE" | jq -r '.fields.priority.name  // "Medium"')
+            ASSIGNEE=$(echo "$RESPONSE" | jq -r '.fields.assignee.displayName // "Unassigned"')
+            LINK="$JIRA_BASE_URL/browse/$ticket"
+
+            jq \
+              --argjson arr "$(cat tickets.json)" \
+              --arg id       "$ticket"   \
+              --arg summary  "$SUMMARY"  \
+              --arg status   "$STATUS"   \
+              --arg type     "$TYPE"     \
+              --arg priority "$PRIORITY" \
+              --arg assignee "$ASSIGNEE" \
+              --arg link     "$LINK"     \
+              -n '$arr + [{id:$id,summary:$summary,status:$status,
+                            type:$type,priority:$priority,
+                            assignee:$assignee,link:$link}]' \
+              > tmp.json && mv tmp.json tickets.json
+
+          done < jira_ids.txt
+
+          TICKET_COUNT=$(jq 'length' tickets.json)
+          echo "ticket_count=$TICKET_COUNT" >> "$GITHUB_OUTPUT"
 
       # ✅ Fetch Epic Summaries
       - name: Fetch Epic Summaries
@@ -242,6 +289,8 @@ jobs:
             EPIC_RESPONSE=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
               "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY?fields=summary,description")
 
+            EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary // ""')
+
             EPIC_DESC=$(echo "$EPIC_RESPONSE" | jq -r '
               def extract:
                 if type=="object" and has("content") then
@@ -253,15 +302,22 @@ jobs:
 
             SHORT=$(echo "$EPIC_DESC" | awk '{for(i=1;i<=15 && i<=NF;i++) printf $i" ";}')
 
-            jq --arg epic "$EPIC_KEY" --arg short "$SHORT" \
-              '. += [{"epic":$epic,"short":$short}]' \
-              release_notes.json > tmp.json && mv tmp.json release_notes.json
+            # De-duplicate by epic key before appending
+            EXISTS=$(jq --arg k "$EPIC_KEY" 'any(.[]; .epic == $k)' release_notes.json)
+            if [ "$EXISTS" = "false" ]; then
+              jq \
+                --arg epic    "$EPIC_KEY"     \
+                --arg title   "$EPIC_SUMMARY" \
+                --arg short   "$SHORT"        \
+                '. += [{"epic":$epic,"title":$title,"short":$short}]' \
+                release_notes.json > tmp.json && mv tmp.json release_notes.json
+            fi
 
           done < jira_ids.txt
 
           echo "epics=$(jq -c . release_notes.json)" >> "$GITHUB_OUTPUT"
 
-      # ✅ Update Confluence (NO HEREDOC → SAFE)
+      # ✅ Update Confluence (unchanged)
       - name: Update Confluence
         run: |
           PAGE_ID=${{ github.event.inputs.confluence_page_id }}
@@ -308,43 +364,313 @@ jobs:
           git tag ${{ steps.tag.outputs.new_tag }}
           git push origin ${{ steps.tag.outputs.new_tag }}
 
+      # ✅ Build Confluence URL
       - name: Build Confluence URL
         run: |
-                CONFLUENCE_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${{ github.event.inputs.confluence_page_id }}"
-                echo "CONFLUENCE_URL=$CONFLUENCE_URL" >> $GITHUB_ENV
+          CONFLUENCE_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${{ github.event.inputs.confluence_page_id }}"
+          echo "CONFLUENCE_URL=$CONFLUENCE_URL" >> $GITHUB_ENV
+
+      # ✅ Scaffold dashboard HTML (only on first run — never overwrites)
+      - name: Scaffold dashboard HTML if missing
+        run: |
+          mkdir -p docs
+          if [ ! -f docs/index.html ]; then
+            echo "Creating docs/index.html for the first time..."
+            # Download the pre-built dashboard from your repo's main branch
+            # Replace the URL below with wherever you store the template,
+            # OR commit docs/index.html manually once (see README instructions).
+            # For now we write it inline so the workflow is self-contained.
+            cat > docs/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Sprint Release Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f12;--surface:#13161b;--surface2:#1a1e25;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#e8eaf0;--muted:#7a8099;
+  --accent:#4f7fff;--accent-dim:rgba(79,127,255,0.12);
+  --done:#22c55e;--done-dim:rgba(34,197,94,0.12);
+  --progress:#f59e0b;--progress-dim:rgba(245,158,11,0.12);
+  --review:#a78bfa;--review-dim:rgba(167,139,250,0.12);
+  --mono:'IBM Plex Mono',monospace;--sans:'DM Sans',sans-serif;
+  --r:10px;--rs:6px;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;min-height:100vh}
+header{border-bottom:1px solid var(--border);padding:0 2rem;height:56px;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:var(--bg);z-index:100}
+.logo{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--accent);letter-spacing:.04em}
+.logo span{color:var(--muted)}
+.shell{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 56px)}
+aside{border-right:1px solid var(--border);padding:1.5rem 0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
+aside h3{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:0 1.25rem;margin-bottom:8px}
+.ri{display:flex;flex-direction:column;gap:2px;padding:10px 1.25rem;cursor:pointer;border-left:2px solid transparent;transition:background .15s,border-color .15s}
+.ri:hover{background:var(--surface)}
+.ri.active{border-left-color:var(--accent);background:var(--surface)}
+.ri .rv{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--text)}
+.ri .rd{font-size:11px;color:var(--muted)}
+.ri .rp{display:flex;align-items:center;gap:6px;margin-top:4px}
+.mini-bar{flex:1;height:3px;background:var(--border2);border-radius:99px;overflow:hidden}
+.mini-fill{height:100%;background:var(--done);border-radius:99px}
+.mini-pct{font-size:10px;font-family:var(--mono);color:var(--muted);min-width:28px;text-align:right}
+main{padding:2rem 2.5rem;max-width:1040px}
+.rh{margin-bottom:2rem;animation:fu .3s ease both}
+.rt{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+.rt h1{font-family:var(--mono);font-size:26px;font-weight:500;letter-spacing:-.02em}
+.bb{font-family:var(--mono);font-size:11px;padding:3px 8px;background:var(--accent-dim);color:var(--accent);border-radius:var(--rs);border:1px solid rgba(79,127,255,.2)}
+.rm{font-size:12px;color:var(--muted);margin-bottom:1.5rem}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:2rem;animation:fu .3s .05s ease both}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.sc .lbl{font-size:11px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.sc .val{font-family:var(--mono);font-size:22px;font-weight:500}
+.pw{margin-bottom:2rem;animation:fu .3s .1s ease both}
+.pl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px;font-family:var(--mono);letter-spacing:.04em}
+.pb{height:6px;background:var(--border2);border-radius:99px;overflow:hidden}
+.pf{height:100%;border-radius:99px;background:var(--done);transition:width .6s cubic-bezier(.4,0,.2,1)}
+.epics{margin-bottom:2rem;animation:fu .3s .12s ease both}
+.epics h2{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.epic-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.epic-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px}
+.ec-key{font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:4px}
+.ec-title{font-size:13px;font-weight:500;color:var(--text);margin-bottom:4px}
+.ec-short{font-size:12px;color:var(--muted);line-height:1.4}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.5rem;animation:fu .3s .14s ease both}
+.fb{font-family:var(--mono);font-size:11px;padding:5px 12px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--rs);color:var(--muted);cursor:pointer;transition:all .15s;letter-spacing:.04em}
+.fb:hover,.fb.active{background:var(--accent-dim);border-color:rgba(79,127,255,.3);color:var(--accent)}
+.sb{margin-left:auto;display:flex;align-items:center;background:var(--surface);border:1px solid var(--border2);border-radius:var(--rs);padding:5px 10px;gap:6px}
+.sb input{background:none;border:none;outline:none;font-family:var(--mono);font-size:11px;color:var(--text);width:160px}
+.sb input::placeholder{color:var(--muted)}
+table.tt{width:100%;border-collapse:collapse;animation:fu .3s .16s ease both}
+table.tt thead tr{border-bottom:1px solid var(--border2)}
+table.tt th{text-align:left;font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:0 12px 10px}
+table.tt th:first-child{padding-left:0}
+.tr{border-bottom:1px solid var(--border);transition:background .15s}
+.tr:hover{background:var(--surface)}
+.tr.hidden{display:none}
+.tr td{padding:12px;vertical-align:top}
+.tr td:first-child{padding-left:0}
+.tid{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--accent);text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.tid:hover{text-decoration:underline}
+.tsm{font-size:13px;color:var(--text);line-height:1.4}
+.badge{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:var(--rs);white-space:nowrap;letter-spacing:.02em}
+.badge::before{content:'';width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.b-done{background:var(--done-dim);color:var(--done)}.b-done::before{background:var(--done)}
+.b-prog{background:var(--progress-dim);color:var(--progress)}.b-prog::before{background:var(--progress)}
+.b-rev{background:var(--review-dim);color:var(--review)}.b-rev::before{background:var(--review)}
+.b-todo{background:rgba(100,116,139,.12);color:var(--muted)}.b-todo::before{background:#64748b}
+.type-b{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:var(--rs);background:var(--surface2);color:var(--muted);border:1px solid var(--border);letter-spacing:.04em}
+.conf-link{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--accent);text-decoration:none;padding:4px 10px;border:1px solid rgba(79,127,255,.25);border-radius:var(--rs);background:var(--accent-dim)}
+.conf-link:hover{background:rgba(79,127,255,.2)}
+.empty{text-align:center;padding:5rem 2rem;color:var(--muted);font-family:var(--mono);font-size:13px;animation:fu .3s ease both}
+.empty .big{font-size:36px;margin-bottom:12px;opacity:.3}
+@keyframes fu{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:760px){.shell{grid-template-columns:1fr}aside{position:static;height:auto;border-right:none;border-bottom:1px solid var(--border)}main{padding:1.25rem}.stats{grid-template-columns:repeat(2,1fr)}.tt th:nth-child(4),.tt td:nth-child(4),.tt th:nth-child(5),.tt td:nth-child(5){display:none}}
+</style>
+</head>
+<body>
+<header>
+  <span class="logo">sprint<span>/</span>releases</span>
+</header>
+<div class="shell">
+  <aside id="sidebar">
+    <h3>Releases</h3>
+    <div id="release-list"><div class="empty" style="padding:2rem 1.25rem;font-size:11px">Loading…</div></div>
+  </aside>
+  <main id="main-content">
+    <div class="empty"><div class="big">◎</div><div>Select a release from the sidebar</div></div>
+  </main>
+</div>
+<script>
+function sc(s){const n=(s||'').toLowerCase();if(n==='done'||n==='closed'||n==='resolved')return'b-done';if(n.includes('progress')||n.includes('active'))return'b-prog';if(n.includes('review')||n.includes('testing')||n.includes('qa'))return'b-rev';return'b-todo'}
+function sg(s){const c=sc(s);if(c==='b-done')return'done';if(c==='b-prog')return'in-progress';if(c==='b-rev')return'review';return'todo'}
+function fd(iso){if(!iso)return'—';const d=new Date(iso);return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
+function ext(){return`<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`}
+
+async function loadSidebar(){
+  let idx;
+  try{const r=await fetch('data/releases.json?'+Date.now());if(!r.ok)throw new Error();idx=await r.json();}
+  catch{document.getElementById('release-list').innerHTML=`<div class="empty" style="padding:1.25rem;font-size:11px;color:#ef4444">Could not load data/releases.json</div>`;return}
+
+  const releases=(idx.releases||[]).slice().reverse();
+  if(!releases.length){document.getElementById('release-list').innerHTML=`<div class="empty" style="padding:1.25rem;font-size:11px">No releases yet</div>`;return}
+
+  const list=document.getElementById('release-list');list.innerHTML='';
+  releases.forEach((rel,i)=>{
+    const done=(rel.tickets_done||0),total=(rel.ticket_count||0);
+    const pct=total?Math.round(done/total*100):0;
+    const el=document.createElement('div');el.className='ri'+(i===0?' active':'');el.dataset.rel=JSON.stringify(rel);
+    el.innerHTML=`<span class="rv">${rel.tag}</span><span class="rd">${fd(rel.date)}</span><div class="rp"><div class="mini-bar"><div class="mini-fill" style="width:${pct}%"></div></div><span class="mini-pct">${pct}%</span></div>`;
+    el.addEventListener('click',()=>{document.querySelectorAll('.ri').forEach(e=>e.classList.remove('active'));el.classList.add('active');renderRelease(rel);});
+    list.appendChild(el);
+  });
+  if(releases[0])renderRelease(releases[0]);
+}
+
+let af='all',sq='';
+function renderRelease(rel){
+  const tickets=rel.tickets||[];
+  const epics=rel.epics||[];
+  const total=tickets.length;
+  const done=tickets.filter(t=>sg(t.status)==='done').length;
+  const inP=tickets.filter(t=>sg(t.status)==='in-progress').length;
+  const pct=total?Math.round(done/total*100):0;
+  const cg=g=>tickets.filter(t=>sg(t.status)===g).length;
+  const confUrl=rel.confluence||'';
+
+  document.getElementById('main-content').innerHTML=`
+    <div class="rh">
+      <div class="rt"><h1>${rel.tag}</h1><span class="bb">${rel.branch||''}</span></div>
+      <div class="rm">Released ${fd(rel.date)} · ${total} ticket${total!==1?'s':''} · ${epics.length} epic${epics.length!==1?'s':''}</div>
+      ${confUrl?`<a class="conf-link" href="${confUrl}" target="_blank" rel="noopener">${ext()} Confluence release notes</a>`:''}
+    </div>
+    <div class="stats">
+      <div class="sc"><div class="lbl">Total</div><div class="val" style="color:var(--text)">${total}</div></div>
+      <div class="sc"><div class="lbl">Done</div><div class="val" style="color:var(--done)">${done}</div></div>
+      <div class="sc"><div class="lbl">In progress</div><div class="val" style="color:var(--progress)">${inP}</div></div>
+      <div class="sc"><div class="lbl">Completion</div><div class="val" style="color:${pct===100?'var(--done)':'var(--text)'}">${pct}%</div></div>
+    </div>
+    <div class="pw">
+      <div class="pl"><span>Release progress</span><span>${done} / ${total}</span></div>
+      <div class="pb"><div class="pf" id="pf" style="width:0%"></div></div>
+    </div>
+    ${epics.length?`
+    <div class="epics">
+      <h2>Epic highlights</h2>
+      <div class="epic-grid">${epics.map(e=>`
+        <div class="epic-card">
+          <div class="ec-key">${e.epic}</div>
+          <div class="ec-title">${e.title||''}</div>
+          <div class="ec-short">${e.short||''}</div>
+        </div>`).join('')}
+      </div>
+    </div>`:''}
+    <div class="filters">
+      <button class="fb active" data-f="all">All <span style="opacity:.5">${total}</span></button>
+      <button class="fb" data-f="done">Done <span style="opacity:.5">${done}</span></button>
+      <button class="fb" data-f="in-progress">In Progress <span style="opacity:.5">${inP}</span></button>
+      <button class="fb" data-f="review">Review <span style="opacity:.5">${cg('review')}</span></button>
+      <button class="fb" data-f="todo">To Do <span style="opacity:.5">${cg('todo')}</span></button>
+      <div class="sb">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="si" type="text" placeholder="Search tickets…"/>
+      </div>
+    </div>
+    ${total===0
+      ?`<div class="empty"><div class="big">∅</div><div>No Jira tickets found for this release</div></div>`
+      :`<table class="tt">
+          <thead><tr>
+            <th style="width:110px">Ticket</th>
+            <th>Summary</th>
+            <th style="width:130px">Status</th>
+            <th style="width:90px">Type</th>
+            <th style="width:100px">Assignee</th>
+          </tr></thead>
+          <tbody id="tbody">${rows(tickets)}</tbody>
+        </table>`}`;
+
+  requestAnimationFrame(()=>{const f=document.getElementById('pf');if(f)f.style.width=pct+'%';});
+  af='all';sq='';
+  document.querySelectorAll('.fb').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.fb').forEach(x=>x.classList.remove('active'));b.classList.add('active');af=b.dataset.f;filter();}));
+  const si=document.getElementById('si');if(si)si.addEventListener('input',e=>{sq=e.target.value;filter();});
+}
+
+function rows(tickets){
+  if(!tickets.length)return`<tr><td colspan="5" style="padding:2rem 0;text-align:center;color:var(--muted);font-family:var(--mono);font-size:12px">No tickets</td></tr>`;
+  return tickets.map(t=>`
+    <tr class="tr" data-g="${sg(t.status)}" data-id="${t.id.toLowerCase()}" data-sm="${(t.summary||'').toLowerCase()}">
+      <td><a class="tid" href="${t.link}" target="_blank" rel="noopener">${t.id} ${ext()}</a></td>
+      <td><div class="tsm">${t.summary}</div></td>
+      <td><span class="badge ${sc(t.status)}">${t.status}</span></td>
+      <td><span class="type-b">${t.type}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${t.assignee}</td>
+    </tr>`).join('');
+}
+
+function filter(){
+  document.querySelectorAll('.tr').forEach(r=>{
+    const gm=af==='all'||r.dataset.g===af;
+    const q=sq.toLowerCase();
+    const sm=!q||r.dataset.id.includes(q)||r.dataset.sm.includes(q);
+    r.classList.toggle('hidden',!(gm&&sm));
+  });
+}
+
+loadSidebar();
+</script>
+</body>
+</html>
+HTMLEOF
+            echo "docs/index.html created."
+          else
+            echo "docs/index.html already exists — skipping scaffold."
+          fi
+
+      # ✅ Update Dashboard JSON (accumulates history — fixes the old overwrite bug)
       - name: Update Dashboard JSON
         run: |
-            mkdir -p docs/data
-        
-            cat > docs/data/releases.json <<EOF
-            {
-              "totalReleases": 13,
-              "totalTickets": 52,
-              "totalCommits": 140,
-              "successRate": 99,
-        
-              "releases": [
-                {
-                  "tag": "${{ steps.tag.outputs.new_tag }}",
-                  "date": "$(date +%Y-%m-%d)",
-                  "tickets": 15,
-                  "confluence": "${{ secrets.CONFLUENCE_URL }}"
-                }
-              ]
-            }
-            EOF
+          mkdir -p docs/data
+
+          TAG="${{ steps.tag.outputs.new_tag }}"
+          BRANCH="${{ github.event.inputs.sprint_branch }}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          CONF_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${{ github.event.inputs.confluence_page_id }}"
+          TICKET_COUNT="${{ steps.jira.outputs.ticket_count }}"
+          TICKETS_JSON="$(cat tickets.json)"
+          EPICS_JSON="${{ steps.epic.outputs.epics }}"
+
+          # Count how many tickets are "Done"
+          DONE_COUNT=$(echo "$TICKETS_JSON" | jq '[.[] | select((.status|ascii_downcase) == "done" or (.status|ascii_downcase) == "closed" or (.status|ascii_downcase) == "resolved")] | length')
+
+          # Build the new release entry
+          NEW_ENTRY=$(jq -n \
+            --arg  tag          "$TAG"          \
+            --arg  branch       "$BRANCH"       \
+            --arg  date         "$DATE"         \
+            --arg  confluence   "$CONF_URL"     \
+            --argjson ticket_count  "$TICKET_COUNT"  \
+            --argjson tickets_done  "$DONE_COUNT"    \
+            --argjson tickets       "$TICKETS_JSON"  \
+            --argjson epics         "$EPICS_JSON"    \
+            '{tag:$tag,branch:$branch,date:$date,confluence:$confluence,
+              ticket_count:$ticket_count,tickets_done:$tickets_done,
+              tickets:$tickets,epics:$epics}')
+
+          # Load existing releases.json or start fresh
+          if [ -f docs/data/releases.json ]; then
+            EXISTING=$(cat docs/data/releases.json)
+          else
+            EXISTING='{"releases":[]}'
+          fi
+
+          # Remove any previous entry with the same tag (idempotent re-runs)
+          # then prepend the new entry so latest is always first
+          UPDATED=$(echo "$EXISTING" | jq \
+            --argjson entry "$NEW_ENTRY" \
+            '.releases = ([$entry] + [.releases[] | select(.tag != $entry.tag)])')
+
+          echo "$UPDATED" > docs/data/releases.json
+          echo "releases.json updated:"
+          jq '.releases | length' docs/data/releases.json
+
+      # ✅ Commit Dashboard Changes
       - name: Commit Dashboard Changes
         run: |
-              git config user.name "github-actions"
-              git config user.email "github-actions@github.com"
-          
-              git add docs/data/releases.json
-              git commit -m "Update release dashboard"
-              git push
-                
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add docs/
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "chore: dashboard update for ${{ steps.tag.outputs.new_tag }}"
+          git push
+
+      # ✅ Send Teams Notification
       - name: Send Teams Notification
         if: success()
-
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
@@ -352,53 +678,52 @@ jobs:
         run: |
           TAG_NAME="${{ steps.tag.outputs.new_tag }}"
           PAGE_ID="${{ github.event.inputs.confluence_page_id }}"
-      
+
           DASHBOARD_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           CONFLUENCE_URL="$CONFLUENCE_BASE_URL/pages/viewpage.action?pageId=$PAGE_ID"
 
-            jq -n \
-              --arg tag "$TAG_NAME" \
-              --arg conf "$CONFLUENCE_URL" \
-              --arg dash "$DASHBOARD_URL" \
-              '{
-                type: "message",
-                attachments: [
-                  {
-                    contentType: "application/vnd.microsoft.card.adaptive",
-                    content: {
-                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                      type: "AdaptiveCard",
-                      version: "1.4",
-                      body: [
-                        {
-                          type: "TextBlock",
-                          size: "Large",
-                          weight: "Bolder",
-                          text: "🚀 Release Successfully Created"
-                        },
-                        {
-                          type: "TextBlock",
-                          text: ("Tag: " + $tag)
-                        }
-                      ],
-                      actions: [
-                        {
-                          type: "Action.OpenUrl",
-                          title: "📄 Confluence",
-                          url: $conf
-                        },
-                        {
-                          type: "Action.OpenUrl",
-                          title: "📊 Dashboard",
-                          url: $dash
-                        }
-                      ]
-                    }
+          jq -n \
+            --arg tag  "$TAG_NAME"      \
+            --arg conf "$CONFLUENCE_URL" \
+            --arg dash "$DASHBOARD_URL"  \
+            '{
+              type: "message",
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.4",
+                    body: [
+                      {
+                        type: "TextBlock",
+                        size: "Large",
+                        weight: "Bolder",
+                        text: "🚀 Release Successfully Created"
+                      },
+                      {
+                        type: "TextBlock",
+                        text: ("Tag: " + $tag)
+                      }
+                    ],
+                    actions: [
+                      {
+                        type: "Action.OpenUrl",
+                        title: "📄 Confluence",
+                        url: $conf
+                      },
+                      {
+                        type: "Action.OpenUrl",
+                        title: "📊 Dashboard",
+                        url: $dash
+                      }
+                    ]
                   }
-                ]
-              }' > payload.json
-        
-            curl --location --request POST "$TEAMS_WEBHOOK_URL" \
-              --header "Content-Type: application/json" \
-              --data @payload.json
-              
+                }
+              ]
+            }' > payload.json
+
+          curl --location --request POST "$TEAMS_WEBHOOK_URL" \
+            --header "Content-Type: application/json" \
+            --data @payload.json
