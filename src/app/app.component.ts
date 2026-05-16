@@ -5,6 +5,7 @@ import { Component } from '@angular/core';
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.css']
 })
+// KAN-8: Added comment for fourth test ticket
 export class AppComponent {
   title = 'dahsboard';
 }
