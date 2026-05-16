@@ -5,7 +5,7 @@ import { SuggestedProjComponent } from './suggested-proj.component';
 describe('SuggestedProjComponent', () => {
   let component: SuggestedProjComponent;
   let fixture: ComponentFixture<SuggestedProjComponent>;
-
+  // KAN-10: Added comment for 6th test ticket
   beforeEach(async(() => {
     TestBed.configureTestingModule({
       declarations: [ SuggestedProjComponent ]
