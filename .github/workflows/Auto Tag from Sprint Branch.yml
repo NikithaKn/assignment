@@ -136,7 +136,7 @@ jobs:
 
             echo "Open PR Count: $COUNT"
 
-            if [ "$COUNT" -eq 2 ]; then
+            if [ "$COUNT" -eq 0 ]; then
               echo "No open PRs remaining"
               break
             fi
