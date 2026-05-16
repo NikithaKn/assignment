@@ -110,7 +110,7 @@ jobs:
             
       # ✅ Initial Release Hold
       - name: Initial Release Hold
-        run: sleep 1200
+        run: sleep 120
         
       # ✅ Refresh branch after hotfix merges
       - name: Refresh sprint branch
@@ -136,7 +136,7 @@ jobs:
 
             echo "Open PR Count: $COUNT"
 
-            if [ "$COUNT" -eq 0 ]; then
+            if [ "$COUNT" -eq 2 ]; then
               echo "No open PRs remaining"
               break
             fi
