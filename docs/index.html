@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Release & Deployment Dashboard</title>
-    <script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-    <script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/chart.js)"></script>
-    <link rel="stylesheet" href="[cdnjs.cloudflare.com](https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css)">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
             --bg-primary: #0d1117;
@@ -264,13 +264,12 @@
 
         let dashboardData = {
             releases: [],
-            commits: [],
             tickets: { tickets: [], summary: {} }
         };
 
         // ── Helpers ────────────────────────────────────────────────────
         function statusGroup(s) {
-            const n = (s || '').toLowerCase();
+            var n = (s || '').toLowerCase();
             if (n === 'done' || n === 'closed' || n === 'resolved') return 'done';
             if (n.indexOf('progress') >= 0 || n.indexOf('active') >= 0) return 'in-progress';
             if (n.indexOf('review') >= 0 || n.indexOf('testing') >= 0 || n.indexOf('qa') >= 0) return 'review';
@@ -278,65 +277,103 @@
         }
 
         function releaseStatus(rel) {
-            if (!rel.ticket_count || rel.ticket_count === 0) return 'Successful';
-            if (rel.tickets_done >= rel.ticket_count) return 'Successful';
-            if (rel.tickets_done > 0) return 'In Progress';
+            var count = rel.ticket_count || 0;
+            var done  = rel.tickets_done || 0;
+            if (count === 0) return 'Successful';
+            if (done >= count) return 'Successful';
             return 'In Progress';
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '—';
+            var date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         }
 
         // ── Data fetching ───────────────────────────────────────────────
         async function fetchData() {
+            console.log('[Dashboard] fetchData() called');
             try {
-                const releasesRes = await fetch(CONFIG.dataPath + '/releases.json?' + Date.now());
-                if (!releasesRes.ok) throw new Error('releases.json not found');
+                var url = CONFIG.dataPath + '/releases.json?' + Date.now();
+                console.log('[Dashboard] Fetching:', url);
 
-                const releasesData = await releasesRes.json();
-                dashboardData.releases = releasesData.releases || [];
+                var releasesRes = await fetch(url);
+                console.log('[Dashboard] releases.json status:', releasesRes.status);
 
-                // Derive flat ticket list from all releases (deduped by id)
-                const seen = new Set();
-                const allTickets = [];
+                if (!releasesRes.ok) throw new Error('releases.json returned ' + releasesRes.status);
+
+                var releasesData = await releasesRes.json();
+                console.log('[Dashboard] Raw releases.json:', releasesData);
+
+                // Guard: ensure releases is an array
+                var releases = releasesData.releases;
+                if (!Array.isArray(releases)) {
+                    console.warn('[Dashboard] releases field is not an array:', releases);
+                    releases = [];
+                }
+                dashboardData.releases = releases;
+                console.log('[Dashboard] Release count:', releases.length);
+
+                // Normalise each release — old entries may have tickets as a number
+                dashboardData.releases = releases.map(function(rel) {
+                    if (!Array.isArray(rel.tickets)) {
+                        console.warn('[Dashboard] Release ' + rel.tag + ' has non-array tickets:', rel.tickets, '— normalising to []');
+                        rel.tickets = [];
+                    }
+                    return rel;
+                });
+
+                // Derive flat deduplicated ticket list from all releases
+                var seen = new Set();
+                var allTickets = [];
                 dashboardData.releases.forEach(function(rel) {
-                    (rel.tickets || []).forEach(function(t) {
+                    rel.tickets.forEach(function(t) {
                         if (!seen.has(t.id)) {
                             seen.add(t.id);
                             allTickets.push(t);
                         }
                     });
                 });
+                console.log('[Dashboard] Unique ticket count:', allTickets.length);
 
-                const done       = allTickets.filter(function(t){ return statusGroup(t.status) === 'done'; }).length;
-                const inProgress = allTickets.filter(function(t){ return statusGroup(t.status) === 'in-progress'; }).length;
-                const review     = allTickets.filter(function(t){ return statusGroup(t.status) === 'review'; }).length;
-                const toDo       = allTickets.filter(function(t){ return statusGroup(t.status) === 'to-do'; }).length;
+                var done       = allTickets.filter(function(t){ return statusGroup(t.status) === 'done'; }).length;
+                var inProgress = allTickets.filter(function(t){ return statusGroup(t.status) === 'in-progress'; }).length;
+                var review     = allTickets.filter(function(t){ return statusGroup(t.status) === 'review'; }).length;
+                var toDo       = allTickets.filter(function(t){ return statusGroup(t.status) === 'to-do'; }).length;
 
                 dashboardData.tickets = {
                     tickets: allTickets,
                     summary: { done: done, inProgress: inProgress + review, toDo: toDo, blocked: 0 }
                 };
+                console.log('[Dashboard] Ticket summary:', dashboardData.tickets.summary);
 
                 renderDashboard();
+
             } catch (error) {
-                console.error('Error fetching data:', error);
+                console.error('[Dashboard] fetchData failed:', error);
+                console.log('[Dashboard] Falling back to sample data');
                 loadSampleData();
             }
         }
 
-        // Sample data for demo (shown if releases.json fails to load)
         function loadSampleData() {
+            console.log('[Dashboard] loadSampleData() called');
             dashboardData = {
                 releases: [
                     { tag: 'v2.4.0', date: '2024-05-31', tickets: [{id:'PROJ-123',summary:'Sample ticket',status:'Done',link:'#'},{id:'PROJ-124',summary:'Another ticket',status:'In Progress',link:'#'}], ticket_count: 2, tickets_done: 1, branch: 'release/2.4', confluence: '' },
                     { tag: 'v2.3.0', date: '2024-05-24', tickets: [{id:'PROJ-120',summary:'Old ticket',status:'Done',link:'#'}], ticket_count: 1, tickets_done: 1, branch: 'release/2.3', confluence: '' }
                 ],
-                commits: [],
-                tickets: { tickets: [{id:'PROJ-123',summary:'Sample ticket',status:'Done'},{id:'PROJ-124',summary:'Another ticket',status:'In Progress'}], summary: { done: 1, inProgress: 1, toDo: 0, blocked: 0 } }
+                tickets: {
+                    tickets: [{id:'PROJ-123',summary:'Sample ticket',status:'Done',link:'#'},{id:'PROJ-124',summary:'Another ticket',status:'In Progress',link:'#'}],
+                    summary: { done: 1, inProgress: 1, toDo: 0, blocked: 0 }
+                }
             };
             renderDashboard();
         }
 
         // ── Render ──────────────────────────────────────────────────────
         function renderDashboard() {
+            console.log('[Dashboard] renderDashboard() — releases:', dashboardData.releases.length, '| tickets:', dashboardData.tickets.tickets.length);
             updateStats();
             renderReleasesTable();
             renderTickets();
@@ -346,47 +383,54 @@
         }
 
         function updateStats() {
-            const releases = dashboardData.releases;
-            const totalTickets = dashboardData.tickets.tickets.length;
-            const successful = releases.filter(function(r){ return releaseStatus(r) === 'Successful'; }).length;
-            const successRate = releases.length ? ((successful / releases.length) * 100).toFixed(1) : 0;
+            var releases     = dashboardData.releases;
+            var totalTickets = dashboardData.tickets.tickets.length;
+            var successful   = releases.filter(function(r){ return releaseStatus(r) === 'Successful'; }).length;
+            var successRate  = releases.length ? ((successful / releases.length) * 100).toFixed(1) : 0;
 
             document.getElementById('totalReleases').textContent = releases.length;
-            document.getElementById('totalTickets').textContent = totalTickets;
-            document.getElementById('totalCommits').textContent = releases.reduce(function(s,r){ return s + (r.ticket_count || 0); }, 0);
-            document.getElementById('successRate').textContent = successRate + '%';
+            document.getElementById('totalTickets').textContent  = totalTickets;
+            document.getElementById('totalCommits').textContent  = releases.reduce(function(s,r){ return s + (r.ticket_count || 0); }, 0);
+            document.getElementById('successRate').textContent   = successRate + '%';
 
             document.getElementById('releasesTrend').innerHTML = '<i class="fas fa-code-branch mr-1"></i> across all sprints';
-            document.getElementById('ticketsTrend').innerHTML = '<i class="fas fa-ticket-alt mr-1"></i> unique tickets';
-            document.getElementById('commitsTrend').innerHTML = '<i class="fas fa-tasks mr-1"></i> total tracked';
-            document.getElementById('successTrend').innerHTML = '<i class="fas fa-check-circle mr-1"></i> release success rate';
+            document.getElementById('ticketsTrend').innerHTML  = '<i class="fas fa-ticket-alt mr-1"></i> unique tickets';
+            document.getElementById('commitsTrend').innerHTML  = '<i class="fas fa-tasks mr-1"></i> total tracked';
+            document.getElementById('successTrend').innerHTML  = '<i class="fas fa-check-circle mr-1"></i> release success rate';
         }
 
         function renderReleasesTable() {
-            const tbody = document.getElementById('releasesTableBody');
+            console.log('[Dashboard] renderReleasesTable()');
+            var tbody = document.getElementById('releasesTableBody');
+            if (!tbody) { console.error('[Dashboard] releasesTableBody not found'); return; }
+
             tbody.innerHTML = dashboardData.releases.slice(0, 10).map(function(release) {
-                const status = releaseStatus(release);
-                const statusCss = status.toLowerCase().replace(' ', '-');
-                const confCell = release.confluence
+                var status    = releaseStatus(release);
+                var statusCss = status.toLowerCase().replace(' ', '-');
+                var pct       = release.ticket_count
+                    ? Math.round((release.tickets_done || 0) / release.ticket_count * 100)
+                    : 0;
+
+                var ticketBadges = release.tickets.slice(0, 4).map(function(t) {
+                    return '<a href="' + (t.link || '#') + '" target="_blank" class="jira-link mr-1">' + t.id + '</a>';
+                }).join('');
+                var overflow = release.tickets.length > 4
+                    ? '<span class="text-gray-500 text-xs">+' + (release.tickets.length - 4) + ' more</span>'
+                    : '';
+
+                var confCell = release.confluence
                     ? '<a href="' + release.confluence + '" target="_blank" class="text-blue-400 hover:underline text-xs">Confluence</a>'
                     : '<span class="text-gray-600 text-xs">—</span>';
-                const ticketBadges = (release.tickets || []).slice(0, 4).map(function(t) {
-                    return '<a href="' + t.link + '" target="_blank" class="jira-link mr-1">' + t.id + '</a>';
-                }).join('');
-                const overflow = (release.tickets || []).length > 4
-                    ? '<span class="text-gray-500 text-xs">+' + ((release.tickets.length - 4)) + ' more</span>'
-                    : '';
-                const pct = release.ticket_count
-                    ? Math.round((release.tickets_done / release.ticket_count) * 100)
-                    : 0;
 
                 return '<tr class="table-row border-b border-gray-800">' +
                     '<td class="py-3"><a href="' + CONFIG.repoUrl + '/releases/tag/' + release.tag + '" class="text-blue-400 hover:underline">' + release.tag + '</a></td>' +
                     '<td class="py-3 text-gray-400">' + formatDate(release.date) + '</td>' +
                     '<td class="py-3">' + ticketBadges + overflow + '</td>' +
-                    '<td class="py-3 text-center">' +
+                    '<td class="py-3">' +
                         '<div class="text-xs text-gray-400">' + (release.tickets_done || 0) + '/' + (release.ticket_count || 0) + '</div>' +
-                        '<div style="height:3px;background:#21262d;border-radius:99px;margin-top:3px"><div style="height:100%;width:' + pct + '%;background:#3fb950;border-radius:99px"></div></div>' +
+                        '<div style="height:3px;background:#21262d;border-radius:99px;margin-top:3px">' +
+                            '<div style="height:100%;width:' + pct + '%;background:#3fb950;border-radius:99px"></div>' +
+                        '</div>' +
                     '</td>' +
                     '<td class="py-3"><span class="text-gray-400"><i class="fas fa-code-branch mr-1"></i>' + (release.branch || '') + '</span></td>' +
                     '<td class="py-3"><span class="status-badge status-' + statusCss + '">' + status + '</span></td>' +
@@ -396,17 +440,19 @@
         }
 
         function renderTickets() {
-            const container = document.getElementById('ticketsContainer');
+            console.log('[Dashboard] renderTickets()');
+            var container = document.getElementById('ticketsContainer');
+            if (!container) { console.error('[Dashboard] ticketsContainer not found'); return; }
+
             container.innerHTML = dashboardData.tickets.tickets.slice(0, 8).map(function(ticket) {
-                const sg = statusGroup(ticket.status);
-                const statusCss = sg.replace(' ', '-');
+                var sg = statusGroup(ticket.status);
                 return '<div class="flex items-center justify-between py-2 border-b border-gray-800">' +
                     '<div class="flex items-center gap-3">' +
                         '<a href="' + (ticket.link || '#') + '" target="_blank" class="jira-link text-sm">' + ticket.id + '</a>' +
                         '<span class="text-sm">' + (ticket.summary || '') + '</span>' +
                     '</div>' +
                     '<div class="flex items-center gap-3">' +
-                        '<span class="status-badge status-' + statusCss + '">' + ticket.status + '</span>' +
+                        '<span class="status-badge status-' + sg + '">' + ticket.status + '</span>' +
                         '<span class="text-gray-500 text-sm">' + (ticket.assignee || '') + '</span>' +
                     '</div>' +
                 '</div>';
@@ -414,19 +460,18 @@
         }
 
         function renderTicketStatusBars() {
-            const summary = dashboardData.tickets.summary;
-            const total = (summary.done || 0) + (summary.inProgress || 0) + (summary.toDo || 0) + (summary.blocked || 0);
-
-            const statuses = [
+            var summary = dashboardData.tickets.summary;
+            var total   = (summary.done || 0) + (summary.inProgress || 0) + (summary.toDo || 0) + (summary.blocked || 0);
+            var statuses = [
                 { label: 'Done',        value: summary.done || 0,       color: '#3fb950' },
                 { label: 'In Progress', value: summary.inProgress || 0, color: '#58a6ff' },
                 { label: 'To Do',       value: summary.toDo || 0,       color: '#d29922' },
                 { label: 'Blocked',     value: summary.blocked || 0,    color: '#f85149' }
             ];
-
-            const container = document.getElementById('ticketStatusBars');
+            var container = document.getElementById('ticketStatusBars');
+            if (!container) return;
             container.innerHTML = statuses.map(function(s) {
-                const percent = total ? ((s.value / total) * 100).toFixed(0) : 0;
+                var percent = total ? ((s.value / total) * 100).toFixed(0) : 0;
                 return '<div class="flex items-center gap-3">' +
                     '<span class="text-sm text-gray-400 w-24">' + s.label + '</span>' +
                     '<div class="progress-bar flex-1"><div class="progress-fill" style="width:' + percent + '%;background-color:' + s.color + '"></div></div>' +
@@ -436,71 +481,74 @@
         }
 
         function renderCharts() {
-            const releases = dashboardData.releases.slice().reverse();
+            console.log('[Dashboard] renderCharts()');
+            if (typeof Chart === 'undefined') {
+                console.error('[Dashboard] Chart.js not loaded — charts skipped');
+                return;
+            }
+            var releases = dashboardData.releases.slice().reverse();
 
-            // Releases over time — ticket completion per release
-            const releasesCtx = document.getElementById('releasesChart').getContext('2d');
-            new Chart(releasesCtx, {
-                type: 'line',
-                data: {
-                    labels: releases.map(function(r){ return r.tag; }),
-                    datasets: [{
-                        label: 'Tickets',
-                        data: releases.map(function(r){ return r.ticket_count || 0; }),
-                        borderColor: '#58a6ff',
-                        backgroundColor: 'rgba(88,166,255,0.1)',
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
-                        y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } }
+            var releasesCtx = document.getElementById('releasesChart');
+            if (releasesCtx) {
+                new Chart(releasesCtx.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: releases.map(function(r){ return r.tag; }),
+                        datasets: [{
+                            label: 'Tickets',
+                            data: releases.map(function(r){ return r.ticket_count || 0; }),
+                            borderColor: '#58a6ff',
+                            backgroundColor: 'rgba(88,166,255,0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
+                            y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } }
+                        }
                     }
-                }
-            });
+                });
+            }
 
-            // Deployment status donut
-            const deployCtx = document.getElementById('deploymentChart').getContext('2d');
-            const successful  = dashboardData.releases.filter(function(r){ return releaseStatus(r) === 'Successful'; }).length;
-            const inProgress  = dashboardData.releases.filter(function(r){ return releaseStatus(r) === 'In Progress'; }).length;
-            const failed      = dashboardData.releases.filter(function(r){ return releaseStatus(r) === 'Failed'; }).length;
-
-            new Chart(deployCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Successful', 'In Progress', 'Failed'],
-                    datasets: [{ data: [successful, inProgress, failed], backgroundColor: ['#3fb950','#d29922','#f85149'], borderWidth: 0 }]
-                },
-                options: {
-                    responsive: true,
-                    cutout: '70%',
-                    plugins: { legend: { position: 'right', labels: { color: '#8b949e', usePointStyle: true } } }
-                }
-            });
-        }
-
-        function formatDate(dateStr) {
-            if (!dateStr) return '—';
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            var deployCtx = document.getElementById('deploymentChart');
+            if (deployCtx) {
+                var successful = dashboardData.releases.filter(function(r){ return releaseStatus(r) === 'Successful'; }).length;
+                var inProgress = dashboardData.releases.filter(function(r){ return releaseStatus(r) === 'In Progress'; }).length;
+                var failed     = dashboardData.releases.filter(function(r){ return releaseStatus(r) === 'Failed'; }).length;
+                new Chart(deployCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Successful', 'In Progress', 'Failed'],
+                        datasets: [{ data: [successful, inProgress, failed], backgroundColor: ['#3fb950','#d29922','#f85149'], borderWidth: 0 }]
+                    },
+                    options: {
+                        responsive: true,
+                        cutout: '70%',
+                        plugins: { legend: { position: 'right', labels: { color: '#8b949e', usePointStyle: true } } }
+                    }
+                });
+            }
         }
 
         function updateDateRange() {
-            const now = new Date();
-            const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            document.getElementById('dateRange').textContent =
-                monthAgo.toLocaleDateString('en-US', {month:'short',day:'numeric'}) + ' - ' +
-                now.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
+            var now      = new Date();
+            var monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            var el = document.getElementById('dateRange');
+            if (el) el.textContent =
+                monthAgo.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ' - ' +
+                now.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
         }
 
         function refreshData() { fetchData(); }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', fetchData);
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('[Dashboard] DOMContentLoaded — starting fetchData()');
+            fetchData();
+        });
     </script>
 </body>
 </html>
