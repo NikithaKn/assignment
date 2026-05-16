@@ -7,7 +7,7 @@ import { ProjService } from '../../services/proj.service';
   styleUrls: ['./suggested-proj.component.css']
 })
 export class SuggestedProjComponent implements OnInit {
-
+  // KAN-9: Added comment for 5th test ticket
   imageResp = [];
   i=0;
   imgPath;
