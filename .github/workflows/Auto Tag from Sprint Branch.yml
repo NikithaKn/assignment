@@ -456,23 +456,23 @@ jobs:
           echo "releases.json updated — total releases: $(jq '.releases | length' docs/data/releases.json)"
 
       # ✅ Commit Dashboard Changes to master
-      # The workflow runs on the sprint branch, but docs/ must live on master
-      # so GitHub Pages (configured to serve from master/docs) always has the
-      # latest data. We use a git worktree so we never disturb the sprint branch.
       - name: Commit Dashboard Changes to master
         run: |
+          REPO_DIR="$(pwd)"
+
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Pull latest master into a separate worktree folder
+          # Check out master in a sibling worktree folder
           git fetch origin master
-          git worktree add ../master-worktree origin/master
+          git worktree add "$REPO_DIR/../master-worktree" origin/master
 
-          # Copy the freshly-built docs/ folder into the master worktree
-          cp -r docs/ ../master-worktree/docs/
+          # Copy docs/ CONTENTS (trailing slash + dot) — avoids docs/docs/ double-nesting
+          mkdir -p "$REPO_DIR/../master-worktree/docs"
+          cp -r "$REPO_DIR/docs/." "$REPO_DIR/../master-worktree/docs/"
 
-          cd ../master-worktree
-
+          # Commit and push from inside the worktree — stay in REPO_DIR for cleanup
+          cd "$REPO_DIR/../master-worktree"
           git add docs/
           if git diff --cached --quiet; then
             echo "docs/ unchanged on master — nothing to commit"
@@ -482,8 +482,9 @@ jobs:
             echo "Pushed docs/ update to master"
           fi
 
-          cd ..
-          git worktree remove master-worktree --force
+          # Clean up worktree from the original repo directory (where .git lives)
+          cd "$REPO_DIR"
+          git worktree remove "$REPO_DIR/../master-worktree" --force
 
 
       # ✅ Send Teams Notification
