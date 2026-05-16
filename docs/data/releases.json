@@ -1,15 +1,156 @@
 {
-  "totalReleases": 12,
-  "totalTickets": 45,
-  "totalCommits": 128,
-  "successRate": 98,
-
+  "totalReleases": 13,
+  "totalTickets": 52,
+  "totalCommits": 140,
+  "successRate": 99,
   "releases": [
     {
-      "tag": "v1.0.0",
-      "date": "2026-05-08",
-      "tickets": 12,
-      "confluence": "https://example.atlassian.net/wiki/page"
+      "tag": "26.7.11",
+      "branch": "26.7.x",
+      "date": "2026-05-16T14:32:24Z",
+      "confluence": "https://writetonikithakn.atlassian.net/pages/viewpage.action?pageId=65705",
+      "ticket_count": 6,
+      "tickets_done": 0,
+      "tickets": [
+        {
+          "id": "KAN-10",
+          "summary": "Test 6 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-10"
+        },
+        {
+          "id": "KAN-5",
+          "summary": "TEST 2 Ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-5"
+        },
+        {
+          "id": "KAN-6",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-6"
+        },
+        {
+          "id": "KAN-7",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-7"
+        },
+        {
+          "id": "KAN-8",
+          "summary": "Test 4 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-8"
+        },
+        {
+          "id": "KAN-9",
+          "summary": "Test 5 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-9"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-4",
+          "title": "Test Epic",
+          "short": "King of Fruits: Mango is considered the 'king of all fruits' and is highly regarded "
+        }
+      ]
+    },
+    {
+      "tag": "26.7.9",
+      "branch": "26.7.x",
+      "date": "2026-05-16T14:09:51Z",
+      "confluence": "https://writetonikithakn.atlassian.net/pages/viewpage.action?pageId=65705",
+      "ticket_count": 6,
+      "tickets_done": 0,
+      "tickets": [
+        {
+          "id": "KAN-10",
+          "summary": "Test 6 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-10"
+        },
+        {
+          "id": "KAN-5",
+          "summary": "TEST 2 Ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-5"
+        },
+        {
+          "id": "KAN-6",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-6"
+        },
+        {
+          "id": "KAN-7",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-7"
+        },
+        {
+          "id": "KAN-8",
+          "summary": "Test 4 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-8"
+        },
+        {
+          "id": "KAN-9",
+          "summary": "Test 5 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-9"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-4",
+          "title": "Test Epic",
+          "short": "King of Fruits: Mango is considered the 'king of all fruits' and is highly regarded "
+        }
+      ]
+    },
+    {
+      "tag": "26.7.6",
+      "date": "2026-05-16",
+      "tickets": 15,
+      "confluence": ""
     }
   ]
 }
