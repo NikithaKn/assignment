@@ -111,7 +111,7 @@ jobs:
 
       # ✅ Initial Release Hold
       - name: Initial Release Hold
-        run: sleep 120
+        run: sleep 20
 
       # ✅ Refresh branch after hotfix merges
       - name: Refresh sprint branch
