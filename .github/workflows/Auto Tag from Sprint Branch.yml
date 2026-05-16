@@ -1,4 +1,4 @@
-name: Auto Tag from Sprint Branch & Update Confluence
+ name: Auto Tag from Sprint Branch & Update Confluence
 
 on:
   workflow_dispatch:
@@ -111,7 +111,7 @@ jobs:
 
       # ✅ Initial Release Hold
       - name: Initial Release Hold
-        run: sleep 120
+        run: sleep 20
 
       # ✅ Refresh branch after hotfix merges
       - name: Refresh sprint branch
@@ -385,50 +385,72 @@ jobs:
           echo "docs/index.html found — OK"
       # ✅ Update Dashboard JSON (accumulates history — fixes the old overwrite bug)
       - name: Update Dashboard JSON
+        # ⚠️  JSON-valued outputs (${{ steps.epic.outputs.epics }} etc.) must NEVER be
+        #     inlined via ${{ }} inside a run: block — GitHub Actions substitutes the raw
+        #     value before bash runs, so JSON like [{"epic":"X","short":"Y"}] gets executed
+        #     as a shell command and fails with "command not found".
+        #     Safe pattern: declare them in the step's env: map; bash then receives them
+        #     as proper environment variables and no shell interpretation happens.
+        env:
+          EPICS_JSON: ${{ steps.epic.outputs.epics }}
+          TICKET_COUNT: ${{ steps.jira.outputs.ticket_count }}
+          NEW_TAG: ${{ steps.tag.outputs.new_tag }}
+          SPRINT_BRANCH: ${{ github.event.inputs.sprint_branch }}
+          CONF_PAGE_ID: ${{ github.event.inputs.confluence_page_id }}
         run: |
           mkdir -p docs/data
 
-          TAG="${{ steps.tag.outputs.new_tag }}"
-          BRANCH="${{ github.event.inputs.sprint_branch }}"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          CONF_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${{ github.event.inputs.confluence_page_id }}"
-          TICKET_COUNT="${{ steps.jira.outputs.ticket_count }}"
+          CONF_URL="${{ secrets.CONFLUENCE_BASE_URL }}/pages/viewpage.action?pageId=${CONF_PAGE_ID}"
+
+          # Read tickets from the file written by "Build Jira JSON for Dashboard"
           TICKETS_JSON="$(cat tickets.json)"
-          EPICS_JSON="${{ steps.epic.outputs.epics }}"
 
-          # Count how many tickets are "Done"
-          DONE_COUNT=$(echo "$TICKETS_JSON" | jq '[.[] | select((.status|ascii_downcase) == "done" or (.status|ascii_downcase) == "closed" or (.status|ascii_downcase) == "resolved")] | length')
+          # Fallback: empty array if epics step produced nothing
+          if [ -z "$EPICS_JSON" ]; then
+            EPICS_JSON="[]"
+          fi
 
-          # Build the new release entry
+          # Fallback: count from file if output var is empty
+          if [ -z "$TICKET_COUNT" ]; then
+            TICKET_COUNT=$(jq 'length' tickets.json)
+          fi
+
+          # Count tickets whose status resolves to "done"
+          DONE_COUNT=$(echo "$TICKETS_JSON" | jq '[.[] | select(
+            (.status | ascii_downcase) == "done" or
+            (.status | ascii_downcase) == "closed" or
+            (.status | ascii_downcase) == "resolved"
+          )] | length')
+
+          # Build the new release entry — all JSON values come from env vars (safe)
           NEW_ENTRY=$(jq -n \
-            --arg  tag          "$TAG"          \
-            --arg  branch       "$BRANCH"       \
-            --arg  date         "$DATE"         \
-            --arg  confluence   "$CONF_URL"     \
+            --arg  tag           "$NEW_TAG"       \
+            --arg  branch        "$SPRINT_BRANCH" \
+            --arg  date          "$DATE"          \
+            --arg  confluence    "$CONF_URL"      \
             --argjson ticket_count  "$TICKET_COUNT"  \
             --argjson tickets_done  "$DONE_COUNT"    \
             --argjson tickets       "$TICKETS_JSON"  \
             --argjson epics         "$EPICS_JSON"    \
-            '{tag:$tag,branch:$branch,date:$date,confluence:$confluence,
-              ticket_count:$ticket_count,tickets_done:$tickets_done,
-              tickets:$tickets,epics:$epics}')
+            '{tag:$tag, branch:$branch, date:$date, confluence:$confluence,
+              ticket_count:$ticket_count, tickets_done:$tickets_done,
+              tickets:$tickets, epics:$epics}')
 
           # Load existing releases.json or start fresh
           if [ -f docs/data/releases.json ]; then
-            EXISTING=$(cat docs/data/releases.json)
+            EXISTING="$(cat docs/data/releases.json)"
           else
             EXISTING='{"releases":[]}'
           fi
 
-          # Remove any previous entry with the same tag (idempotent re-runs)
-          # then prepend the new entry so latest is always first
-          UPDATED=$(echo "$EXISTING" | jq \
+          # Prepend new entry; remove any prior entry with the same tag (idempotent)
+          echo "$EXISTING" | jq \
             --argjson entry "$NEW_ENTRY" \
-            '.releases = ([$entry] + [.releases[] | select(.tag != $entry.tag)])')
+            '.releases = ([$entry] + [.releases[] | select(.tag != $entry.tag)])' \
+            > docs/data/releases.json
 
-          echo "$UPDATED" > docs/data/releases.json
-          echo "releases.json updated:"
-          jq '.releases | length' docs/data/releases.json
+          echo "releases.json updated — total releases: $(jq '.releases | length' docs/data/releases.json)"
 
       # ✅ Commit Dashboard Changes
       - name: Commit Dashboard Changes
