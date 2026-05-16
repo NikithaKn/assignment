@@ -1,4 +1,4 @@
- name: Auto Tag from Sprint Branch & Update Confluence
+name: Auto Tag from Sprint Branch & Update Confluence
 
 on:
   workflow_dispatch:
