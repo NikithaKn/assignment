@@ -98,7 +98,7 @@
                 <span class="font-semibold text-lg">Dashboard</span>
             </div>
             <nav class="space-y-1">
-                <a href="#" class="sidebar-link active">
+                <a href="#" class="sidebar-link">
                     <i class="fas fa-chart-pie w-5 mr-3"></i> Overview
                 </a>
                 <a href="#releases" class="sidebar-link">
@@ -545,8 +545,22 @@
 
         function refreshData() { fetchData(); }
 
+        // ── Sidebar active state ──────────────────────────────────────
+        function initNav() {
+            var links = document.querySelectorAll('.sidebar-link');
+            links.forEach(function(link) {
+                link.addEventListener('click', function() {
+                    links.forEach(function(l) { l.classList.remove('active'); });
+                    link.classList.add('active');
+                });
+            });
+            // Set Overview active on load
+            if (links.length > 0) links[0].classList.add('active');
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             console.log('[Dashboard] DOMContentLoaded — starting fetchData()');
+            initNav();
             fetchData();
         });
     </script>
