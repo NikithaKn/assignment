@@ -60,16 +60,17 @@ jobs:
           # Fields and JQL must be sent as a JSON body, not query params.
           # ─────────────────────────────────────────────────────────────────────
 
-          # Build the JSON body using jq so version name is safely escaped
+          # Build the JSON body using jq so version name is safely escaped.
+          # NOTE: /rest/api/3/search/jql does NOT accept "startAt" — that field
+          # belongs to the old /search endpoint. This new endpoint uses
+          # "nextPageToken" for pagination. Sending startAt causes HTTP 400.
           REQUEST_BODY=$(jq -n \
             --arg jql 'fixVersion="${{ inputs.fix_version }}"' \
             --argjson maxResults 1000 \
-            --argjson startAt 0 \
             '{
               jql: $jql,
               fields: ["key","summary","issuetype","status","parent","fixVersions"],
-              maxResults: $maxResults,
-              startAt: $startAt
+              maxResults: $maxResults
             }')
 
           echo ""
