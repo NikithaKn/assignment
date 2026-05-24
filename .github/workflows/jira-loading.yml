@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       fix_version:
-        description: 'Jira Fix Version (e.g., 2.5.0, Sprint-23)'
+        description: 'Jira Fix Version (e.g., 26.7.0)'
         required: true
         type: string
 
