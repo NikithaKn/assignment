@@ -57,16 +57,20 @@ jobs:
           
           echo "🔍 JQL Query: $JQL"
           echo "🔍 Encoded JQL: $ENCODED_JQL"
+          
+          # Build the full URL
+          JIRA_URL="${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=${ENCODED_JQL}&fields=key,summary,issuetype,status,parent&maxResults=1000"
+          echo "🔍 Full URL (first 100 chars): ${JIRA_URL:0:100}..."
           echo "🔍 Making request to Jira API..."
           
           # Temporarily disable exit on error to capture curl output
           set +e
           
           # Fetch issues from Jira with HTTP status code and capture any errors
-          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
+          HTTP_RESPONSE=$(curl -v -w "\n%{http_code}" -X GET \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
-            "${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=$ENCODED_JQL&fields=key,summary,issuetype,status,parent&maxResults=1000" 2>&1)
+            "${JIRA_URL}" 2>&1)
           
           CURL_EXIT=$?
           set -e
