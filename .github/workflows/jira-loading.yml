@@ -29,17 +29,15 @@ jobs:
           echo "Fetching Jira tickets for Fix Version: ${{ inputs.fix_version }}"
           echo "========================================="
 
-          # Validate that required secrets are set
+          # Validate secrets
           if [ -z "${{ env.JIRA_BASE_URL }}" ]; then
             echo "❌ Error: JIRA_BASE_URL secret is not set"
             exit 1
           fi
-
           if [ -z "${{ env.JIRA_EMAIL }}" ]; then
             echo "❌ Error: JIRA_EMAIL secret is not set"
             exit 1
           fi
-
           if [ -z "${{ env.JIRA_API_TOKEN }}" ]; then
             echo "❌ Error: JIRA_API_TOKEN secret is not set"
             exit 1
@@ -49,101 +47,77 @@ jobs:
           echo "🔍 Jira Base URL: ${{ env.JIRA_BASE_URL }}"
           echo "🔍 Fix Version input: ${{ inputs.fix_version }}"
 
-          # Create auth header — use -w 0 to prevent base64 wrapping at 76 chars (Linux default)
-          # Line wrapping silently corrupts the Authorization header and causes 401s
+          # base64 -w 0 prevents line-wrapping (Linux wraps at 76 chars by default,
+          # which silently corrupts the Authorization header)
           AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64 -w 0)
-          echo "🔍 Auth header length (should be > 0): ${#AUTH}"
+          echo "🔍 Auth header byte length: ${#AUTH}"
+
+          ENDPOINT="${{ env.JIRA_BASE_URL }}/rest/api/3/search/jql"
+          echo "🔍 Endpoint: $ENDPOINT"
 
           # ─────────────────────────────────────────────────────────────────────
-          # Helper: run a curl search and return the raw HTTP response + code
-          # Usage: do_search <endpoint> <jql>
+          # /rest/api/3/search/jql is POST-only (GET was removed, returns 410).
+          # Fields and JQL must be sent as a JSON body, not query params.
           # ─────────────────────────────────────────────────────────────────────
-          do_search() {
-            local ENDPOINT="$1"
-            local JQL="$2"
-            local FULL_URL="${{ env.JIRA_BASE_URL }}${ENDPOINT}"
 
-            echo "🔍 [do_search] Endpoint : $FULL_URL"
-            echo "🔍 [do_search] JQL      : $JQL"
+          # Build the JSON body using jq so version name is safely escaped
+          REQUEST_BODY=$(jq -n \
+            --arg jql 'fixVersion="${{ inputs.fix_version }}"' \
+            --argjson maxResults 1000 \
+            --argjson startAt 0 \
+            '{
+              jql: $jql,
+              fields: ["key","summary","issuetype","status","parent","fixVersions"],
+              maxResults: $maxResults,
+              startAt: $startAt
+            }')
 
-            set +e
-            local RESULT
-            RESULT=$(curl -s -w "\n%{http_code}" -G --http1.1 \
-              -H "Authorization: Basic $AUTH" \
-              -H "Accept: application/json" \
-              --data-urlencode "jql=$JQL" \
-              --data-urlencode "fields=key,summary,issuetype,status,parent,fixVersions" \
-              --data-urlencode "maxResults=1000" \
-              --data-urlencode "startAt=0" \
-              "$FULL_URL" 2>&1)
-            local EXIT_CODE=$?
-            set -e
-
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "❌ [do_search] curl failed (exit $EXIT_CODE)"
-              echo "$RESULT"
-              return 1
-            fi
-
-            echo "$RESULT"
-          }
-
-          # ─────────────────────────────────────────────────────────────────────
-          # Strategy 1: API v3 /search  (standard GET endpoint)
-          #   The /search/jql path is POST-only in newer Jira Cloud versions.
-          #   GET requests must go to /rest/api/3/search.
-          # ─────────────────────────────────────────────────────────────────────
           echo ""
-          echo "--- Strategy 1: GET /rest/api/3/search (API v3, quoted version name) ---"
-          JQL_QUOTED='fixVersion="${{ inputs.fix_version }}"'
-          RAW=$(do_search "/rest/api/3/search" "$JQL_QUOTED")
-          HTTP_CODE=$(echo "$RAW" | tail -n1)
-          RESPONSE=$(echo "$RAW" | sed '$d')
-          echo "🔍 HTTP Status: $HTTP_CODE"
+          echo "📤 Request body:"
+          echo "$REQUEST_BODY" | jq '.'
+          echo ""
+          echo "🔍 Making POST request to Jira API..."
 
-          # ─────────────────────────────────────────────────────────────────────
-          # Strategy 2: API v2 /search  (fallback for Server / Data Center)
-          # ─────────────────────────────────────────────────────────────────────
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo ""
-            echo "--- Strategy 2: GET /rest/api/2/search (API v2, quoted version name) ---"
-            RAW=$(do_search "/rest/api/2/search" "$JQL_QUOTED")
-            HTTP_CODE=$(echo "$RAW" | tail -n1)
-            RESPONSE=$(echo "$RAW" | sed '$d')
-            echo "🔍 HTTP Status: $HTTP_CODE"
-          fi
+          set +e
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST \
+            --http1.1 \
+            -H "Authorization: Basic $AUTH" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$REQUEST_BODY" \
+            "$ENDPOINT" 2>&1)
+          CURL_EXIT=$?
+          set -e
 
-          # ─────────────────────────────────────────────────────────────────────
-          # Strategy 3: Unquoted version name (some Jira setups require this)
-          # ─────────────────────────────────────────────────────────────────────
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo ""
-            echo "--- Strategy 3: GET /rest/api/3/search (unquoted version name) ---"
-            JQL_UNQUOTED="fixVersion=${{ inputs.fix_version }}"
-            RAW=$(do_search "/rest/api/3/search" "$JQL_UNQUOTED")
-            HTTP_CODE=$(echo "$RAW" | tail -n1)
-            RESPONSE=$(echo "$RAW" | sed '$d')
-            echo "🔍 HTTP Status: $HTTP_CODE"
-          fi
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ All strategies failed. Final HTTP code: $HTTP_CODE"
-            echo "📄 Full response body (for debugging):"
-            echo "$RESPONSE"
+          if [ $CURL_EXIT -ne 0 ]; then
+            echo "❌ curl command failed with exit code: $CURL_EXIT"
+            echo "Output: $HTTP_RESPONSE"
             exit 1
           fi
 
-          echo "✅ Successful response received"
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+          echo "🔍 HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Request failed (HTTP $HTTP_CODE)"
+            echo "📄 Full response body:"
+            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "✅ Successful 200 response received"
 
           # ─────────────────────────────────────────────────────────────────────
-          # Parse response
+          # Parse and validate response
           # ─────────────────────────────────────────────────────────────────────
           echo ""
           echo "📄 Raw response (first 2000 chars for debugging):"
           echo "$RESPONSE" | head -c 2000
           echo ""
 
-          # Validate that .issues key exists before extracting total
           HAS_ISSUES=$(echo "$RESPONSE" | jq 'has("issues")' 2>/dev/null || echo "false")
           echo "🔍 Response has 'issues' key: $HAS_ISSUES"
 
@@ -157,11 +131,11 @@ jobs:
           TOTAL=$(echo "$RESPONSE" | jq -r '.total // 0')
           ISSUES_IN_PAGE=$(echo "$RESPONSE" | jq '.issues | length')
           echo ""
-          echo "📊 Total tickets in Jira (all pages): $TOTAL"
-          echo "📊 Tickets returned in this page    : $ISSUES_IN_PAGE"
+          echo "📊 Total tickets in Jira (all pages) : $TOTAL"
+          echo "📊 Tickets returned in this page     : $ISSUES_IN_PAGE"
           echo ""
 
-          # Save raw JSON regardless of count — useful for debugging zero-result runs
+          # Write tickets.json before the zero-check so the artifact upload always has a file
           echo "$RESPONSE" | jq '.' > tickets.json
           echo "💾 tickets.json written ($(wc -c < tickets.json) bytes)"
 
@@ -170,27 +144,27 @@ jobs:
             echo "⚠️  No tickets found for fix version: ${{ inputs.fix_version }}"
             echo ""
             echo "Possible causes:"
-            echo "  1. The fix version name doesn't match exactly (check capitalisation/spacing)"
-            echo "  2. The version belongs to a project the API token cannot access"
-            echo "  3. The fix version exists but has no issues assigned to it"
+            echo "  1. Version name mismatch (check exact capitalisation/spacing in Jira)"
+            echo "  2. The API token lacks access to the project that owns this version"
+            echo "  3. The version exists but has no issues assigned"
             echo ""
-            echo "🔍 Attempting broader diagnostic — listing ALL fix versions visible to this token:"
+            echo "🔍 Diagnostic: listing all projects and versions visible to this token..."
             set +e
-            curl -s --http1.1 \
+            PROJECTS=$(curl -s --http1.1 \
               -H "Authorization: Basic $AUTH" \
               -H "Accept: application/json" \
-              "${{ env.JIRA_BASE_URL }}/rest/api/3/project" \
-              | jq -r '.[] | .key' \
-              | head -20 \
-              | while read PROJECT_KEY; do
-                  echo "  Project: $PROJECT_KEY"
-                  curl -s --http1.1 \
-                    -H "Authorization: Basic $AUTH" \
-                    -H "Accept: application/json" \
-                    "${{ env.JIRA_BASE_URL }}/rest/api/3/project/$PROJECT_KEY/versions" \
-                    | jq -r '.[] | "    Version: \(.name) (id: \(.id), released: \(.released))"' 2>/dev/null \
-                    || echo "    (could not fetch versions)"
-                done
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/project" 2>/dev/null)
+            echo "  Projects response status: $(echo "$PROJECTS" | jq 'if type == "array" then "array(\(length) projects)" else . end' 2>/dev/null)"
+            echo "$PROJECTS" | jq -r '.[]?.key // empty' 2>/dev/null | head -20 | while read PROJECT_KEY; do
+              echo "  Project: $PROJECT_KEY"
+              curl -s --http1.1 \
+                -H "Authorization: Basic $AUTH" \
+                -H "Accept: application/json" \
+                "${{ env.JIRA_BASE_URL }}/rest/api/3/project/$PROJECT_KEY/versions" \
+                2>/dev/null \
+                | jq -r '.[]? | "    → \(.name)  (id:\(.id)  released:\(.released))"' 2>/dev/null \
+                || echo "    (could not fetch versions)"
+            done
             set -e
             exit 0
           fi
