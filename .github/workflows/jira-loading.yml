@@ -122,7 +122,7 @@ jobs:
           echo "✅ Report completed successfully"
 
       - name: Upload tickets data as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: jira-tickets-${{ inputs.fix_version }}
           path: tickets.json
