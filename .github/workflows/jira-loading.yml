@@ -51,6 +51,8 @@ jobs:
           # Create auth header
           AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64)
           
+          echo "🔍 Auth header length: ${#AUTH}"
+          
           # JQL query to find all issues with the specified fix version
           JQL='fixVersion="${{ inputs.fix_version }}"'
           
@@ -61,9 +63,10 @@ jobs:
           set +e
           
           # Fetch issues from Jira using curl's --data-urlencode for proper URL encoding
-          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -G \
+          # Force HTTP/1.1 to avoid HTTP/2 issues
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -G --http1.1 \
             -H "Authorization: Basic $AUTH" \
-            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
             --data-urlencode "jql=$JQL" \
             --data-urlencode "fields=key,summary,issuetype,status,parent" \
             --data-urlencode "maxResults=1000" \
