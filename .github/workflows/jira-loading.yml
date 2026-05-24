@@ -24,9 +24,29 @@ jobs:
       - name: Fetch tickets by fix version
         id: fetch-tickets
         run: |
+          set -e
           echo "========================================="
           echo "Fetching Jira tickets for Fix Version: ${{ inputs.fix_version }}"
           echo "========================================="
+          
+          # Validate that required secrets are set
+          if [ -z "${{ env.JIRA_BASE_URL }}" ]; then
+            echo "❌ Error: JIRA_BASE_URL secret is not set"
+            exit 1
+          fi
+          
+          if [ -z "${{ env.JIRA_EMAIL }}" ]; then
+            echo "❌ Error: JIRA_EMAIL secret is not set"
+            exit 1
+          fi
+          
+          if [ -z "${{ env.JIRA_API_TOKEN }}" ]; then
+            echo "❌ Error: JIRA_API_TOKEN secret is not set"
+            exit 1
+          fi
+          
+          echo "✅ All required secrets are configured"
+          echo "🔍 Jira Base URL: ${{ env.JIRA_BASE_URL }}"
           
           # Create auth header
           AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64)
@@ -35,24 +55,36 @@ jobs:
           JQL="fixVersion=\"${{ inputs.fix_version }}\""
           ENCODED_JQL=$(echo "$JQL" | jq -sRr @uri)
           
-          echo "🔍 Debug: JQL Query = $JQL"
-          echo "🔍 Debug: Encoded JQL = $ENCODED_JQL"
-          echo "🔍 Debug: Making request to Jira API..."
+          echo "🔍 JQL Query: $JQL"
+          echo "🔍 Encoded JQL: $ENCODED_JQL"
+          echo "🔍 Making request to Jira API..."
           
-          # Fetch issues from Jira with HTTP status code
+          # Temporarily disable exit on error to capture curl output
+          set +e
+          
+          # Fetch issues from Jira with HTTP status code and capture any errors
           HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
-            "${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=$ENCODED_JQL&fields=key,summary,issuetype,status,parent&maxResults=1000")
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=$ENCODED_JQL&fields=key,summary,issuetype,status,parent&maxResults=1000" 2>&1)
+          
+          CURL_EXIT=$?
+          set -e
+          
+          if [ $CURL_EXIT -ne 0 ]; then
+            echo "❌ curl command failed with exit code: $CURL_EXIT"
+            echo "Output: $HTTP_RESPONSE"
+            exit 1
+          fi
           
           # Extract HTTP status code and response body
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
           
-          echo "🔍 Debug: HTTP Status Code = $HTTP_CODE"
+          echo "🔍 HTTP Status Code: $HTTP_CODE"
           
           # Check if request was successful
-          if [ "$HTTP_CODE" -ne 200 ]; then
+          if [ "$HTTP_CODE" != "200" ]; then
             echo "❌ Failed to fetch tickets from Jira (HTTP $HTTP_CODE)"
             echo "Response: $RESPONSE"
             exit 1
