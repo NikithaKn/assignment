@@ -53,7 +53,7 @@ jobs:
           
           # JQL query to find all issues with the specified fix version
           JQL="fixVersion=\"${{ inputs.fix_version }}\""
-          ENCODED_JQL=$(echo "$JQL" | jq -sRr @uri)
+          ENCODED_JQL=$(printf '%s' "$JQL" | jq -sRr @uri)
           
           echo "🔍 JQL Query: $JQL"
           echo "🔍 Encoded JQL: $ENCODED_JQL"
