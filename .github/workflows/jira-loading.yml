@@ -7,6 +7,7 @@ on:
         description: 'Jira Fix Version (e.g., 26.7.0)'
         required: true
         type: string
+        default: '26.7.0'
 
 env:
   JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}  # e.g., https://your-company.atlassian.net
@@ -34,15 +35,26 @@ jobs:
           JQL="fixVersion=\"${{ inputs.fix_version }}\""
           ENCODED_JQL=$(echo "$JQL" | jq -sRr @uri)
           
-          # Fetch issues from Jira
-          RESPONSE=$(curl -s -X GET \
+          echo "🔍 Debug: JQL Query = $JQL"
+          echo "🔍 Debug: Encoded JQL = $ENCODED_JQL"
+          echo "🔍 Debug: Making request to Jira API..."
+          
+          # Fetch issues from Jira with HTTP status code
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
             "${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=$ENCODED_JQL&fields=key,summary,issuetype,status,parent&maxResults=1000")
           
+          # Extract HTTP status code and response body
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
+          
+          echo "🔍 Debug: HTTP Status Code = $HTTP_CODE"
+          
           # Check if request was successful
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to fetch tickets from Jira"
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Failed to fetch tickets from Jira (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE"
             exit 1
           fi
           
