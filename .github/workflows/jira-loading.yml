@@ -28,150 +28,254 @@ jobs:
           echo "========================================="
           echo "Fetching Jira tickets for Fix Version: ${{ inputs.fix_version }}"
           echo "========================================="
-          
+
           # Validate that required secrets are set
           if [ -z "${{ env.JIRA_BASE_URL }}" ]; then
             echo "❌ Error: JIRA_BASE_URL secret is not set"
             exit 1
           fi
-          
+
           if [ -z "${{ env.JIRA_EMAIL }}" ]; then
             echo "❌ Error: JIRA_EMAIL secret is not set"
             exit 1
           fi
-          
+
           if [ -z "${{ env.JIRA_API_TOKEN }}" ]; then
             echo "❌ Error: JIRA_API_TOKEN secret is not set"
             exit 1
           fi
-          
+
           echo "✅ All required secrets are configured"
           echo "🔍 Jira Base URL: ${{ env.JIRA_BASE_URL }}"
-          
-          # Create auth header
-          AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64)
-          
-          echo "🔍 Auth header length: ${#AUTH}"
-          
-          # JQL query to find all issues with the specified fix version
-          JQL='fixVersion="${{ inputs.fix_version }}"'
-          
-          echo "🔍 JQL Query: $JQL"
-          echo "🔍 Making request to Jira API..."
-          
-          # Temporarily disable exit on error to capture curl output
-          set +e
-          
-          # Fetch issues from Jira using curl's --data-urlencode for proper URL encoding
-          # Force HTTP/1.1 to avoid HTTP/2 issues
-          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -G --http1.1 \
-            -H "Authorization: Basic $AUTH" \
-            -H "Accept: application/json" \
-            --data-urlencode "jql=$JQL" \
-            --data-urlencode "fields=key,summary,issuetype,status,parent" \
-            --data-urlencode "maxResults=1000" \
-            "${{ env.JIRA_BASE_URL }}/rest/api/3/search/jql" 2>&1)
-          
-          CURL_EXIT=$?
-          set -e
-          
-          if [ $CURL_EXIT -ne 0 ]; then
-            echo "❌ curl command failed with exit code: $CURL_EXIT"
-            echo "Output: $HTTP_RESPONSE"
-            exit 1
-          fi
-          
-          # Extract HTTP status code and response body
-          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
-          RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
-          
-          echo "🔍 HTTP Status Code: $HTTP_CODE"
-          
-          # Check if request was successful
+          echo "🔍 Fix Version input: ${{ inputs.fix_version }}"
+
+          # Create auth header — use -w 0 to prevent base64 wrapping at 76 chars (Linux default)
+          # Line wrapping silently corrupts the Authorization header and causes 401s
+          AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64 -w 0)
+          echo "🔍 Auth header length (should be > 0): ${#AUTH}"
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Helper: run a curl search and return the raw HTTP response + code
+          # Usage: do_search <endpoint> <jql>
+          # ─────────────────────────────────────────────────────────────────────
+          do_search() {
+            local ENDPOINT="$1"
+            local JQL="$2"
+            local FULL_URL="${{ env.JIRA_BASE_URL }}${ENDPOINT}"
+
+            echo "🔍 [do_search] Endpoint : $FULL_URL"
+            echo "🔍 [do_search] JQL      : $JQL"
+
+            set +e
+            local RESULT
+            RESULT=$(curl -s -w "\n%{http_code}" -G --http1.1 \
+              -H "Authorization: Basic $AUTH" \
+              -H "Accept: application/json" \
+              --data-urlencode "jql=$JQL" \
+              --data-urlencode "fields=key,summary,issuetype,status,parent,fixVersions" \
+              --data-urlencode "maxResults=1000" \
+              --data-urlencode "startAt=0" \
+              "$FULL_URL" 2>&1)
+            local EXIT_CODE=$?
+            set -e
+
+            if [ $EXIT_CODE -ne 0 ]; then
+              echo "❌ [do_search] curl failed (exit $EXIT_CODE)"
+              echo "$RESULT"
+              return 1
+            fi
+
+            echo "$RESULT"
+          }
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Strategy 1: API v3 /search  (standard GET endpoint)
+          #   The /search/jql path is POST-only in newer Jira Cloud versions.
+          #   GET requests must go to /rest/api/3/search.
+          # ─────────────────────────────────────────────────────────────────────
+          echo ""
+          echo "--- Strategy 1: GET /rest/api/3/search (API v3, quoted version name) ---"
+          JQL_QUOTED='fixVersion="${{ inputs.fix_version }}"'
+          RAW=$(do_search "/rest/api/3/search" "$JQL_QUOTED")
+          HTTP_CODE=$(echo "$RAW" | tail -n1)
+          RESPONSE=$(echo "$RAW" | sed '$d')
+          echo "🔍 HTTP Status: $HTTP_CODE"
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Strategy 2: API v2 /search  (fallback for Server / Data Center)
+          # ─────────────────────────────────────────────────────────────────────
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Failed to fetch tickets from Jira (HTTP $HTTP_CODE)"
-            echo "Response: $RESPONSE"
+            echo ""
+            echo "--- Strategy 2: GET /rest/api/2/search (API v2, quoted version name) ---"
+            RAW=$(do_search "/rest/api/2/search" "$JQL_QUOTED")
+            HTTP_CODE=$(echo "$RAW" | tail -n1)
+            RESPONSE=$(echo "$RAW" | sed '$d')
+            echo "🔍 HTTP Status: $HTTP_CODE"
+          fi
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Strategy 3: Unquoted version name (some Jira setups require this)
+          # ─────────────────────────────────────────────────────────────────────
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo ""
+            echo "--- Strategy 3: GET /rest/api/3/search (unquoted version name) ---"
+            JQL_UNQUOTED="fixVersion=${{ inputs.fix_version }}"
+            RAW=$(do_search "/rest/api/3/search" "$JQL_UNQUOTED")
+            HTTP_CODE=$(echo "$RAW" | tail -n1)
+            RESPONSE=$(echo "$RAW" | sed '$d')
+            echo "🔍 HTTP Status: $HTTP_CODE"
+          fi
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ All strategies failed. Final HTTP code: $HTTP_CODE"
+            echo "📄 Full response body (for debugging):"
+            echo "$RESPONSE"
             exit 1
           fi
-          
-          # Extract total count
+
+          echo "✅ Successful response received"
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Parse response
+          # ─────────────────────────────────────────────────────────────────────
+          echo ""
+          echo "📄 Raw response (first 2000 chars for debugging):"
+          echo "$RESPONSE" | head -c 2000
+          echo ""
+
+          # Validate that .issues key exists before extracting total
+          HAS_ISSUES=$(echo "$RESPONSE" | jq 'has("issues")' 2>/dev/null || echo "false")
+          echo "🔍 Response has 'issues' key: $HAS_ISSUES"
+
+          if [ "$HAS_ISSUES" != "true" ]; then
+            echo "❌ Unexpected response structure — 'issues' key missing"
+            echo "📄 Full response:"
+            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+            exit 1
+          fi
+
           TOTAL=$(echo "$RESPONSE" | jq -r '.total // 0')
+          ISSUES_IN_PAGE=$(echo "$RESPONSE" | jq '.issues | length')
           echo ""
-          echo "📊 Total tickets found: $TOTAL"
+          echo "📊 Total tickets in Jira (all pages): $TOTAL"
+          echo "📊 Tickets returned in this page    : $ISSUES_IN_PAGE"
           echo ""
-          
+
+          # Save raw JSON regardless of count — useful for debugging zero-result runs
+          echo "$RESPONSE" | jq '.' > tickets.json
+          echo "💾 tickets.json written ($(wc -c < tickets.json) bytes)"
+
           if [ "$TOTAL" -eq 0 ]; then
+            echo ""
             echo "⚠️  No tickets found for fix version: ${{ inputs.fix_version }}"
+            echo ""
+            echo "Possible causes:"
+            echo "  1. The fix version name doesn't match exactly (check capitalisation/spacing)"
+            echo "  2. The version belongs to a project the API token cannot access"
+            echo "  3. The fix version exists but has no issues assigned to it"
+            echo ""
+            echo "🔍 Attempting broader diagnostic — listing ALL fix versions visible to this token:"
+            set +e
+            curl -s --http1.1 \
+              -H "Authorization: Basic $AUTH" \
+              -H "Accept: application/json" \
+              "${{ env.JIRA_BASE_URL }}/rest/api/3/project" \
+              | jq -r '.[] | .key' \
+              | head -20 \
+              | while read PROJECT_KEY; do
+                  echo "  Project: $PROJECT_KEY"
+                  curl -s --http1.1 \
+                    -H "Authorization: Basic $AUTH" \
+                    -H "Accept: application/json" \
+                    "${{ env.JIRA_BASE_URL }}/rest/api/3/project/$PROJECT_KEY/versions" \
+                    | jq -r '.[] | "    Version: \(.name) (id: \(.id), released: \(.released))"' 2>/dev/null \
+                    || echo "    (could not fetch versions)"
+                done
+            set -e
             exit 0
           fi
-          
-          # Save response to file for processing
-          echo "$RESPONSE" > tickets.json
-          
-          # Extract unique epic keys
-          EPIC_KEYS=$(echo "$RESPONSE" | jq -r '.issues[] | select(.fields.parent.key != null) | .fields.parent.key' | sort -u)
-          
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Display tickets
+          # ─────────────────────────────────────────────────────────────────────
           echo "========================================="
           echo "TICKETS IN FIX VERSION: ${{ inputs.fix_version }}"
           echo "========================================="
           echo ""
-          
-          # Display all tickets
-          echo "$RESPONSE" | jq -r '.issues[] | "🎫 \(.key) - \(.fields.summary)\n   Type: \(.fields.issuetype.name)\n   Status: \(.fields.status.name)\n   Epic: \(.fields.parent.key // "No Epic")\n"'
-          
+
+          echo "$RESPONSE" | jq -r '
+            .issues[] |
+            "🎫 \(.key) - \(.fields.summary)
+               Type    : \(.fields.issuetype.name)
+               Status  : \(.fields.status.name)
+               Fix Ver : \([.fields.fixVersions[]?.name] | join(", ") | if . == "" then "none" else . end)
+               Epic    : \(.fields.parent.key // "No Epic")
+            "
+          '
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Fetch epic details
+          # ─────────────────────────────────────────────────────────────────────
+          EPIC_KEYS=$(echo "$RESPONSE" | jq -r '.issues[] | select(.fields.parent.key != null) | .fields.parent.key' | sort -u)
+
           echo ""
           echo "========================================="
           echo "FETCHING EPIC DETAILS"
           echo "========================================="
           echo ""
-          
-          # Fetch and display each epic's details
+
           if [ -n "$EPIC_KEYS" ]; then
             for EPIC_KEY in $EPIC_KEYS; do
               echo "Fetching details for Epic: $EPIC_KEY"
-              
-              EPIC_RESPONSE=$(curl -s -X GET \
+              set +e
+              EPIC_RESPONSE=$(curl -s -X GET --http1.1 \
                 -H "Authorization: Basic $AUTH" \
-                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
                 "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$EPIC_KEY?fields=key,summary,status,description")
-              
-              if [ $? -eq 0 ]; then
+              EPIC_CURL_EXIT=$?
+              set -e
+
+              if [ $EPIC_CURL_EXIT -eq 0 ]; then
                 echo ""
-                echo "$EPIC_RESPONSE" | jq -r '"🎯 Epic: \(.key) - \(.fields.summary)\n   Status: \(.fields.status.name)\n   Description: \(.fields.description.content[0].content[0].text // "No description")\n"'
+                echo "$EPIC_RESPONSE" | jq -r '"🎯 Epic: \(.key) - \(.fields.summary)\n   Status: \(.fields.status.name)\n   Description: \(.fields.description.content[0].content[0].text // "No description")\n"' 2>/dev/null \
+                  || echo "  (could not parse epic response)"
               else
-                echo "❌ Failed to fetch epic: $EPIC_KEY"
+                echo "❌ Failed to fetch epic: $EPIC_KEY (curl exit $EPIC_CURL_EXIT)"
               fi
             done
           else
             echo "ℹ️  No epics associated with the tickets in this fix version"
           fi
-          
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Summary
+          # ─────────────────────────────────────────────────────────────────────
           echo ""
           echo "========================================="
           echo "SUMMARY"
           echo "========================================="
-          echo "Fix Version: ${{ inputs.fix_version }}"
-          echo "Total Tickets: $TOTAL"
-          
+          echo "Fix Version   : ${{ inputs.fix_version }}"
+          echo "Total Tickets : $TOTAL"
+
           EPIC_COUNT=$(echo "$EPIC_KEYS" | grep -v '^$' | wc -l | tr -d ' ')
-          echo "Total Epics: $EPIC_COUNT"
-          
-          # Count by issue type
+          echo "Total Epics   : $EPIC_COUNT"
+
           echo ""
           echo "Breakdown by Issue Type:"
           echo "$RESPONSE" | jq -r '.issues | group_by(.fields.issuetype.name) | .[] | "  \(.[0].fields.issuetype.name): \(length)"'
-          
-          # Count by status
+
           echo ""
           echo "Breakdown by Status:"
           echo "$RESPONSE" | jq -r '.issues | group_by(.fields.status.name) | .[] | "  \(.[0].fields.status.name): \(length)"'
-          
+
           echo ""
           echo "✅ Report completed successfully"
 
       - name: Upload tickets data as artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jira-tickets-${{ inputs.fix_version }}
           path: tickets.json
+          if-no-files-found: warn
           retention-days: 30
