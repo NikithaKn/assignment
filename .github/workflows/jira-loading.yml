@@ -1,0 +1,129 @@
+name: Jira Fix Version Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      fix_version:
+        description: 'Jira Fix Version (e.g., 2.5.0, Sprint-23)'
+        required: true
+        type: string
+
+env:
+  JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}  # e.g., https://your-company.atlassian.net
+  JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+  JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+jobs:
+  fetch-jira-tickets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Fetch tickets by fix version
+        id: fetch-tickets
+        run: |
+          echo "========================================="
+          echo "Fetching Jira tickets for Fix Version: ${{ inputs.fix_version }}"
+          echo "========================================="
+          
+          # Create auth header
+          AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64)
+          
+          # JQL query to find all issues with the specified fix version
+          JQL="fixVersion=\"${{ inputs.fix_version }}\""
+          ENCODED_JQL=$(echo "$JQL" | jq -sRr @uri)
+          
+          # Fetch issues from Jira
+          RESPONSE=$(curl -s -X GET \
+            -H "Authorization: Basic $AUTH" \
+            -H "Content-Type: application/json" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=$ENCODED_JQL&fields=key,summary,issuetype,status,parent&maxResults=1000")
+          
+          # Check if request was successful
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to fetch tickets from Jira"
+            exit 1
+          fi
+          
+          # Extract total count
+          TOTAL=$(echo "$RESPONSE" | jq -r '.total // 0')
+          echo ""
+          echo "📊 Total tickets found: $TOTAL"
+          echo ""
+          
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "⚠️  No tickets found for fix version: ${{ inputs.fix_version }}"
+            exit 0
+          fi
+          
+          # Save response to file for processing
+          echo "$RESPONSE" > tickets.json
+          
+          # Extract unique epic keys
+          EPIC_KEYS=$(echo "$RESPONSE" | jq -r '.issues[] | select(.fields.parent.key != null) | .fields.parent.key' | sort -u)
+          
+          echo "========================================="
+          echo "TICKETS IN FIX VERSION: ${{ inputs.fix_version }}"
+          echo "========================================="
+          echo ""
+          
+          # Display all tickets
+          echo "$RESPONSE" | jq -r '.issues[] | "🎫 \(.key) - \(.fields.summary)\n   Type: \(.fields.issuetype.name)\n   Status: \(.fields.status.name)\n   Epic: \(.fields.parent.key // "No Epic")\n"'
+          
+          echo ""
+          echo "========================================="
+          echo "FETCHING EPIC DETAILS"
+          echo "========================================="
+          echo ""
+          
+          # Fetch and display each epic's details
+          if [ -n "$EPIC_KEYS" ]; then
+            for EPIC_KEY in $EPIC_KEYS; do
+              echo "Fetching details for Epic: $EPIC_KEY"
+              
+              EPIC_RESPONSE=$(curl -s -X GET \
+                -H "Authorization: Basic $AUTH" \
+                -H "Content-Type: application/json" \
+                "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$EPIC_KEY?fields=key,summary,status,description")
+              
+              if [ $? -eq 0 ]; then
+                echo ""
+                echo "$EPIC_RESPONSE" | jq -r '"🎯 Epic: \(.key) - \(.fields.summary)\n   Status: \(.fields.status.name)\n   Description: \(.fields.description.content[0].content[0].text // "No description")\n"'
+              else
+                echo "❌ Failed to fetch epic: $EPIC_KEY"
+              fi
+            done
+          else
+            echo "ℹ️  No epics associated with the tickets in this fix version"
+          fi
+          
+          echo ""
+          echo "========================================="
+          echo "SUMMARY"
+          echo "========================================="
+          echo "Fix Version: ${{ inputs.fix_version }}"
+          echo "Total Tickets: $TOTAL"
+          
+          EPIC_COUNT=$(echo "$EPIC_KEYS" | grep -v '^$' | wc -l | tr -d ' ')
+          echo "Total Epics: $EPIC_COUNT"
+          
+          # Count by issue type
+          echo ""
+          echo "Breakdown by Issue Type:"
+          echo "$RESPONSE" | jq -r '.issues | group_by(.fields.issuetype.name) | .[] | "  \(.[0].fields.issuetype.name): \(length)"'
+          
+          # Count by status
+          echo ""
+          echo "Breakdown by Status:"
+          echo "$RESPONSE" | jq -r '.issues | group_by(.fields.status.name) | .[] | "  \(.[0].fields.status.name): \(length)"'
+          
+          echo ""
+          echo "✅ Report completed successfully"
+
+      - name: Upload tickets data as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: jira-tickets-${{ inputs.fix_version }}
+          path: tickets.json
+          retention-days: 30
