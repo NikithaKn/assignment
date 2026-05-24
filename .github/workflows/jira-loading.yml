@@ -52,25 +52,22 @@ jobs:
           AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64)
           
           # JQL query to find all issues with the specified fix version
-          JQL="fixVersion=\"${{ inputs.fix_version }}\""
-          ENCODED_JQL=$(printf '%s' "$JQL" | jq -sRr @uri)
+          JQL='fixVersion="${{ inputs.fix_version }}"'
           
           echo "🔍 JQL Query: $JQL"
-          echo "🔍 Encoded JQL: $ENCODED_JQL"
-          
-          # Build the full URL
-          JIRA_URL="${{ env.JIRA_BASE_URL }}/rest/api/3/search?jql=${ENCODED_JQL}&fields=key,summary,issuetype,status,parent&maxResults=1000"
-          echo "🔍 Full URL (first 100 chars): ${JIRA_URL:0:100}..."
           echo "🔍 Making request to Jira API..."
           
           # Temporarily disable exit on error to capture curl output
           set +e
           
-          # Fetch issues from Jira with HTTP status code and capture any errors
-          HTTP_RESPONSE=$(curl -v -w "\n%{http_code}" -X GET \
+          # Fetch issues from Jira using curl's --data-urlencode for proper URL encoding
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -G \
             -H "Authorization: Basic $AUTH" \
             -H "Content-Type: application/json" \
-            "${JIRA_URL}" 2>&1)
+            --data-urlencode "jql=$JQL" \
+            --data-urlencode "fields=key,summary,issuetype,status,parent" \
+            --data-urlencode "maxResults=1000" \
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/search" 2>&1)
           
           CURL_EXIT=$?
           set -e
