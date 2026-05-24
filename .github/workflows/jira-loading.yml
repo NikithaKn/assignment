@@ -70,7 +70,7 @@ jobs:
             --data-urlencode "jql=$JQL" \
             --data-urlencode "fields=key,summary,issuetype,status,parent" \
             --data-urlencode "maxResults=1000" \
-            "${{ env.JIRA_BASE_URL }}/rest/api/3/search" 2>&1)
+            "${{ env.JIRA_BASE_URL }}/rest/api/3/search/jql" 2>&1)
           
           CURL_EXIT=$?
           set -e
