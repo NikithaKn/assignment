@@ -65,11 +65,11 @@ jobs:
           # belongs to the old /search endpoint. This new endpoint uses
           # "nextPageToken" for pagination. Sending startAt causes HTTP 400.
           REQUEST_BODY=$(jq -n \
-            --arg jql 'fixVersion="${{ inputs.fix_version }}"' \
+            --arg jql 'cf[10104] = "${{ inputs.fix_version }}"' \
             --argjson maxResults 1000 \
             '{
               jql: $jql,
-              fields: ["key","summary","issuetype","status","parent","fixVersions"],
+              fields: ["key","summary","issuetype","status","parent","customfield_10104"],
               maxResults: $maxResults
             }')
 
@@ -145,27 +145,25 @@ jobs:
             echo "⚠️  No tickets found for fix version: ${{ inputs.fix_version }}"
             echo ""
             echo "Possible causes:"
-            echo "  1. Version name mismatch (check exact capitalisation/spacing in Jira)"
-            echo "  2. The API token lacks access to the project that owns this version"
-            echo "  3. The version exists but has no issues assigned"
+            echo "  1. Value mismatch — check the exact string stored in cf[10104] in Jira"
+            echo "  2. The API token lacks access to the project"
+            echo "  3. The custom field exists but no issues have this value set"
             echo ""
-            echo "🔍 Diagnostic: listing all projects and versions visible to this token..."
+            echo "🔍 Diagnostic: sampling cf[10104] values from the last 20 issues in any project..."
             set +e
-            PROJECTS=$(curl -s --http1.1 \
+            SAMPLE_BODY=$(jq -n '{
+              jql: "order by created DESC",
+              fields: ["key","customfield_10104"],
+              maxResults: 20
+            }')
+            curl -s -X POST --http1.1 \
               -H "Authorization: Basic $AUTH" \
+              -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              "${{ env.JIRA_BASE_URL }}/rest/api/3/project" 2>/dev/null)
-            echo "  Projects response status: $(echo "$PROJECTS" | jq 'if type == "array" then "array(\(length) projects)" else . end' 2>/dev/null)"
-            echo "$PROJECTS" | jq -r '.[]?.key // empty' 2>/dev/null | head -20 | while read PROJECT_KEY; do
-              echo "  Project: $PROJECT_KEY"
-              curl -s --http1.1 \
-                -H "Authorization: Basic $AUTH" \
-                -H "Accept: application/json" \
-                "${{ env.JIRA_BASE_URL }}/rest/api/3/project/$PROJECT_KEY/versions" \
-                2>/dev/null \
-                | jq -r '.[]? | "    → \(.name)  (id:\(.id)  released:\(.released))"' 2>/dev/null \
-                || echo "    (could not fetch versions)"
-            done
+              -d "$SAMPLE_BODY" \
+              "$ENDPOINT" 2>/dev/null \
+              | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' 2>/dev/null \
+              || echo "  (could not fetch sample)"
             set -e
             exit 0
           fi
@@ -183,7 +181,7 @@ jobs:
             "🎫 \(.key) - \(.fields.summary)
                Type    : \(.fields.issuetype.name)
                Status  : \(.fields.status.name)
-               Fix Ver : \([.fields.fixVersions[]?.name] | join(", ") | if . == "" then "none" else . end)
+               Fix Ver : \(.fields.customfield_10104 // "none")
                Epic    : \(.fields.parent.key // "No Epic")
             "
           '
