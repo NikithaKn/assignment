@@ -67,17 +67,19 @@ jobs:
             echo "--- Page $PAGE (fetched so far: $TOTAL_FETCHED) ---"
 
             # Build request body — include nextPageToken on pages 2+
+            # customfield_10104 must be included in fields — omitting a custom field
+            # used in the JQL filter causes Jira Cloud to return 0 results silently
             if [ -z "$NEXT_PAGE_TOKEN" ]; then
               REQUEST_BODY=$(jq -n \
                 --arg jql "$JQL" \
                 --argjson maxResults 100 \
-                '{jql: $jql, fields: ["key"], maxResults: $maxResults}')
+                '{jql: $jql, fields: ["key","customfield_10104"], maxResults: $maxResults}')
             else
               REQUEST_BODY=$(jq -n \
                 --arg jql "$JQL" \
                 --arg nextPageToken "$NEXT_PAGE_TOKEN" \
                 --argjson maxResults 100 \
-                '{jql: $jql, fields: ["key"], maxResults: $maxResults, nextPageToken: $nextPageToken}')
+                '{jql: $jql, fields: ["key","customfield_10104"], maxResults: $maxResults, nextPageToken: $nextPageToken}')
             fi
 
             echo "📤 Request body: $(echo "$REQUEST_BODY" | jq -c '.')"
