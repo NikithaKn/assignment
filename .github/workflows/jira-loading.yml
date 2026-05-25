@@ -10,9 +10,12 @@ on:
         default: '26.7.0'
 
 env:
-  JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}  # e.g., https://your-company.atlassian.net
+  JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
   JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
   JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+permissions:
+  contents: write
 
 jobs:
   fetch-jira-tickets:
@@ -20,8 +23,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch tickets by fix version
+      - name: Fetch all ticket IDs and write docs/data/jira-tickets.json
         id: fetch-tickets
         run: |
           set -e
@@ -30,225 +35,175 @@ jobs:
           echo "========================================="
 
           # Validate secrets
-          if [ -z "${{ env.JIRA_BASE_URL }}" ]; then
-            echo "❌ Error: JIRA_BASE_URL secret is not set"
-            exit 1
-          fi
-          if [ -z "${{ env.JIRA_EMAIL }}" ]; then
-            echo "❌ Error: JIRA_EMAIL secret is not set"
-            exit 1
-          fi
-          if [ -z "${{ env.JIRA_API_TOKEN }}" ]; then
-            echo "❌ Error: JIRA_API_TOKEN secret is not set"
-            exit 1
-          fi
+          if [ -z "${{ env.JIRA_BASE_URL }}" ]; then echo "❌ JIRA_BASE_URL not set"; exit 1; fi
+          if [ -z "${{ env.JIRA_EMAIL }}" ];    then echo "❌ JIRA_EMAIL not set";    exit 1; fi
+          if [ -z "${{ env.JIRA_API_TOKEN }}" ]; then echo "❌ JIRA_API_TOKEN not set"; exit 1; fi
 
           echo "✅ All required secrets are configured"
-          echo "🔍 Jira Base URL: ${{ env.JIRA_BASE_URL }}"
-          echo "🔍 Fix Version input: ${{ inputs.fix_version }}"
+          echo "🔍 Fix Version : ${{ inputs.fix_version }}"
 
-          # base64 -w 0 prevents line-wrapping (Linux wraps at 76 chars by default,
+          # base64 -w 0 prevents line-wrapping on Linux (default wraps at 76 chars,
           # which silently corrupts the Authorization header)
           AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64 -w 0)
           echo "🔍 Auth header byte length: ${#AUTH}"
 
           ENDPOINT="${{ env.JIRA_BASE_URL }}/rest/api/3/search/jql"
-          echo "🔍 Endpoint: $ENDPOINT"
+          JQL='cf[10104] = "${{ inputs.fix_version }}"'
+
+          echo "🔍 Endpoint : $ENDPOINT"
+          echo "🔍 JQL      : $JQL"
+
+          # Temp file to accumulate keys across pages
+          KEYS_FILE=$(mktemp)
+          PAGE=1
+          NEXT_PAGE_TOKEN=""
+          TOTAL_FETCHED=0
 
           # ─────────────────────────────────────────────────────────────────────
-          # /rest/api/3/search/jql is POST-only (GET was removed, returns 410).
-          # Fields and JQL must be sent as a JSON body, not query params.
+          # Paginate using nextPageToken (replaces startAt on /search/jql)
           # ─────────────────────────────────────────────────────────────────────
-
-          # Build the JSON body using jq so version name is safely escaped.
-          # NOTE: /rest/api/3/search/jql does NOT accept "startAt" — that field
-          # belongs to the old /search endpoint. This new endpoint uses
-          # "nextPageToken" for pagination. Sending startAt causes HTTP 400.
-          REQUEST_BODY=$(jq -n \
-            --arg jql 'cf[10104] = "${{ inputs.fix_version }}"' \
-            --argjson maxResults 1000 \
-            '{
-              jql: $jql,
-              fields: ["key","summary","issuetype","status","parent","customfield_10104"],
-              maxResults: $maxResults
-            }')
-
-          echo ""
-          echo "📤 Request body:"
-          echo "$REQUEST_BODY" | jq '.'
-          echo ""
-          echo "🔍 Making POST request to Jira API..."
-
-          set +e
-          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -X POST \
-            --http1.1 \
-            -H "Authorization: Basic $AUTH" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d "$REQUEST_BODY" \
-            "$ENDPOINT" 2>&1)
-          CURL_EXIT=$?
-          set -e
-
-          if [ $CURL_EXIT -ne 0 ]; then
-            echo "❌ curl command failed with exit code: $CURL_EXIT"
-            echo "Output: $HTTP_RESPONSE"
-            exit 1
-          fi
-
-          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
-          RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
-
-          echo "🔍 HTTP Status: $HTTP_CODE"
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Request failed (HTTP $HTTP_CODE)"
-            echo "📄 Full response body:"
-            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
-            exit 1
-          fi
-
-          echo "✅ Successful 200 response received"
-
-          # ─────────────────────────────────────────────────────────────────────
-          # Parse and validate response
-          # ─────────────────────────────────────────────────────────────────────
-          echo ""
-          echo "📄 Raw response (first 2000 chars for debugging):"
-          echo "$RESPONSE" | head -c 2000
-          echo ""
-
-          HAS_ISSUES=$(echo "$RESPONSE" | jq 'has("issues")' 2>/dev/null || echo "false")
-          echo "🔍 Response has 'issues' key: $HAS_ISSUES"
-
-          if [ "$HAS_ISSUES" != "true" ]; then
-            echo "❌ Unexpected response structure — 'issues' key missing"
-            echo "📄 Full response:"
-            echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
-            exit 1
-          fi
-
-          TOTAL=$(echo "$RESPONSE" | jq -r '.total // 0')
-          ISSUES_IN_PAGE=$(echo "$RESPONSE" | jq '.issues | length')
-          echo ""
-          echo "📊 Total tickets in Jira (all pages) : $TOTAL"
-          echo "📊 Tickets returned in this page     : $ISSUES_IN_PAGE"
-          echo ""
-
-          # Write tickets.json before the zero-check so the artifact upload always has a file
-          echo "$RESPONSE" | jq '.' > tickets.json
-          echo "💾 tickets.json written ($(wc -c < tickets.json) bytes)"
-
-          if [ "$TOTAL" -eq 0 ]; then
+          while true; do
             echo ""
-            echo "⚠️  No tickets found for fix version: ${{ inputs.fix_version }}"
-            echo ""
-            echo "Possible causes:"
-            echo "  1. Value mismatch — check the exact string stored in cf[10104] in Jira"
-            echo "  2. The API token lacks access to the project"
-            echo "  3. The custom field exists but no issues have this value set"
-            echo ""
-            echo "🔍 Diagnostic: sampling cf[10104] values from the last 20 issues in any project..."
+            echo "--- Page $PAGE (fetched so far: $TOTAL_FETCHED) ---"
+
+            # Build request body — include nextPageToken on pages 2+
+            if [ -z "$NEXT_PAGE_TOKEN" ]; then
+              REQUEST_BODY=$(jq -n \
+                --arg jql "$JQL" \
+                --argjson maxResults 100 \
+                '{jql: $jql, fields: ["key"], maxResults: $maxResults}')
+            else
+              REQUEST_BODY=$(jq -n \
+                --arg jql "$JQL" \
+                --arg nextPageToken "$NEXT_PAGE_TOKEN" \
+                --argjson maxResults 100 \
+                '{jql: $jql, fields: ["key"], maxResults: $maxResults, nextPageToken: $nextPageToken}')
+            fi
+
+            echo "📤 Request body: $(echo "$REQUEST_BODY" | jq -c '.')"
+
             set +e
-            SAMPLE_BODY=$(jq -n '{
-              jql: "order by created DESC",
-              fields: ["key","customfield_10104"],
-              maxResults: 20
-            }')
-            curl -s -X POST --http1.1 \
+            HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -X POST --http1.1 \
               -H "Authorization: Basic $AUTH" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
-              -d "$SAMPLE_BODY" \
-              "$ENDPOINT" 2>/dev/null \
-              | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' 2>/dev/null \
-              || echo "  (could not fetch sample)"
+              -d "$REQUEST_BODY" \
+              "$ENDPOINT" 2>&1)
+            CURL_EXIT=$?
             set -e
-            exit 0
-          fi
 
-          # ─────────────────────────────────────────────────────────────────────
-          # Display tickets
-          # ─────────────────────────────────────────────────────────────────────
-          echo "========================================="
-          echo "TICKETS IN FIX VERSION: ${{ inputs.fix_version }}"
-          echo "========================================="
-          echo ""
+            if [ $CURL_EXIT -ne 0 ]; then
+              echo "❌ curl failed on page $PAGE (exit $CURL_EXIT)"
+              echo "$HTTP_RESPONSE"
+              exit 1
+            fi
 
-          echo "$RESPONSE" | jq -r '
-            .issues[] |
-            "🎫 \(.key) - \(.fields.summary)
-               Type    : \(.fields.issuetype.name)
-               Status  : \(.fields.status.name)
-               Fix Ver : \(.fields.customfield_10104 // "none")
-               Epic    : \(.fields.parent.key // "No Epic")
-            "
-          '
+            HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+            RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
 
-          # ─────────────────────────────────────────────────────────────────────
-          # Fetch epic details
-          # ─────────────────────────────────────────────────────────────────────
-          EPIC_KEYS=$(echo "$RESPONSE" | jq -r '.issues[] | select(.fields.parent.key != null) | .fields.parent.key' | sort -u)
+            echo "🔍 HTTP Status: $HTTP_CODE"
 
-          echo ""
-          echo "========================================="
-          echo "FETCHING EPIC DETAILS"
-          echo "========================================="
-          echo ""
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "❌ Request failed (HTTP $HTTP_CODE)"
+              echo "📄 Response:"
+              echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+              exit 1
+            fi
 
-          if [ -n "$EPIC_KEYS" ]; then
-            for EPIC_KEY in $EPIC_KEYS; do
-              echo "Fetching details for Epic: $EPIC_KEY"
-              set +e
-              EPIC_RESPONSE=$(curl -s -X GET --http1.1 \
-                -H "Authorization: Basic $AUTH" \
-                -H "Accept: application/json" \
-                "${{ env.JIRA_BASE_URL }}/rest/api/3/issue/$EPIC_KEY?fields=key,summary,status,description")
-              EPIC_CURL_EXIT=$?
-              set -e
-
-              if [ $EPIC_CURL_EXIT -eq 0 ]; then
-                echo ""
-                echo "$EPIC_RESPONSE" | jq -r '"🎯 Epic: \(.key) - \(.fields.summary)\n   Status: \(.fields.status.name)\n   Description: \(.fields.description.content[0].content[0].text // "No description")\n"' 2>/dev/null \
-                  || echo "  (could not parse epic response)"
-              else
-                echo "❌ Failed to fetch epic: $EPIC_KEY (curl exit $EPIC_CURL_EXIT)"
+            # Validate structure on first page
+            if [ "$PAGE" -eq 1 ]; then
+              HAS_ISSUES=$(echo "$RESPONSE" | jq 'has("issues")' 2>/dev/null || echo "false")
+              if [ "$HAS_ISSUES" != "true" ]; then
+                echo "❌ Unexpected response structure — 'issues' key missing"
+                echo "📄 Full response:"
+                echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
+                exit 1
               fi
-            done
+              TOTAL=$(echo "$RESPONSE" | jq -r '.total // 0')
+              echo "📊 Total tickets reported by Jira: $TOTAL"
+
+              if [ "$TOTAL" -eq 0 ]; then
+                echo ""
+                echo "⚠️  No tickets found for: $JQL"
+                echo ""
+                echo "Possible causes:"
+                echo "  1. Value mismatch — check exact string stored in cf[10104] in Jira"
+                echo "  2. API token lacks access to the project"
+                echo "  3. No issues have this value set"
+                echo ""
+                echo "🔍 Sampling cf[10104] from the 20 most recently created issues..."
+                set +e
+                curl -s -X POST --http1.1 \
+                  -H "Authorization: Basic $AUTH" \
+                  -H "Content-Type: application/json" \
+                  -H "Accept: application/json" \
+                  -d "$(jq -n '{jql:"order by created DESC",fields:["key","customfield_10104"],maxResults:20}')" \
+                  "$ENDPOINT" 2>/dev/null \
+                  | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' 2>/dev/null \
+                  || echo "  (could not fetch sample)"
+                set -e
+                exit 0
+              fi
+            fi
+
+            # Extract keys from this page and append to temp file
+            PAGE_KEYS=$(echo "$RESPONSE" | jq -r '.issues[].key')
+            PAGE_COUNT=$(echo "$RESPONSE" | jq '.issues | length')
+            echo "$PAGE_KEYS" >> "$KEYS_FILE"
+            TOTAL_FETCHED=$((TOTAL_FETCHED + PAGE_COUNT))
+            echo "📄 Keys on this page: $PAGE_COUNT  |  Running total: $TOTAL_FETCHED"
+            echo "$PAGE_KEYS"
+
+            # Check for next page
+            NEXT_PAGE_TOKEN=$(echo "$RESPONSE" | jq -r '.nextPageToken // empty')
+            if [ -z "$NEXT_PAGE_TOKEN" ]; then
+              echo ""
+              echo "✅ All pages fetched — no nextPageToken in last response"
+              break
+            fi
+
+            echo "🔍 nextPageToken present — fetching next page..."
+            PAGE=$((PAGE + 1))
+          done
+
+          echo ""
+          echo "📊 Total ticket IDs collected: $TOTAL_FETCHED"
+
+          # ─────────────────────────────────────────────────────────────────────
+          # Write docs/data/jira-tickets.json
+          # ─────────────────────────────────────────────────────────────────────
+          mkdir -p docs/data
+
+          # Build JSON array from the collected keys
+          TICKETS_JSON=$(jq -R . "$KEYS_FILE" | jq -s \
+            --arg fixVersion "${{ inputs.fix_version }}" \
+            --arg generatedAt "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --argjson total "$TOTAL_FETCHED" \
+            '{
+              fixVersion: $fixVersion,
+              generatedAt: $generatedAt,
+              total: $total,
+              tickets: .
+            }')
+
+          echo "$TICKETS_JSON" > docs/data/jira-tickets.json
+          echo "💾 docs/data/jira-tickets.json written ($(wc -c < docs/data/jira-tickets.json) bytes)"
+          echo ""
+          echo "📄 File preview:"
+          cat docs/data/jira-tickets.json
+
+      - name: Commit and push jira-tickets.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add docs/data/jira-tickets.json
+
+          if git diff --cached --quiet; then
+            echo "ℹ️  No changes to docs/data/jira-tickets.json — nothing to commit"
           else
-            echo "ℹ️  No epics associated with the tickets in this fix version"
+            git commit -m "chore: update jira-tickets.json for fix version ${{ inputs.fix_version }}"
+            git push
+            echo "✅ docs/data/jira-tickets.json committed and pushed"
           fi
-
-          # ─────────────────────────────────────────────────────────────────────
-          # Summary
-          # ─────────────────────────────────────────────────────────────────────
-          echo ""
-          echo "========================================="
-          echo "SUMMARY"
-          echo "========================================="
-          echo "Fix Version   : ${{ inputs.fix_version }}"
-          echo "Total Tickets : $TOTAL"
-
-          EPIC_COUNT=$(echo "$EPIC_KEYS" | grep -v '^$' | wc -l | tr -d ' ')
-          echo "Total Epics   : $EPIC_COUNT"
-
-          echo ""
-          echo "Breakdown by Issue Type:"
-          echo "$RESPONSE" | jq -r '.issues | group_by(.fields.issuetype.name) | .[] | "  \(.[0].fields.issuetype.name): \(length)"'
-
-          echo ""
-          echo "Breakdown by Status:"
-          echo "$RESPONSE" | jq -r '.issues | group_by(.fields.status.name) | .[] | "  \(.[0].fields.status.name): \(length)"'
-
-          echo ""
-          echo "✅ Report completed successfully"
-
-      - name: Upload tickets data as artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jira-tickets-${{ inputs.fix_version }}
-          path: tickets.json
-          if-no-files-found: warn
-          retention-days: 30
