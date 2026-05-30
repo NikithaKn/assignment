@@ -5,9 +5,9 @@
   "successRate": 99,
   "releases": [
     {
-      "tag": "26.7.13",
+      "tag": "26.7.14",
       "branch": "26.7.x",
-      "date": "2026-05-30T15:26:10Z",
+      "date": "2026-05-30T15:29:04Z",
       "confluence": "https://writetonikithakn.atlassian.net/pages/viewpage.action?pageId=65705",
       "ticket_count": 6,
       "tickets_done": 0,
