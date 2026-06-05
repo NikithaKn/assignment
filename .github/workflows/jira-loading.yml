@@ -1,211 +1,74 @@
-name: Jira Fix Version Report
+name: Jira Release Dashboard
+
+# Fetches every Jira ticket associated with a release tag via customfield_10104,
+# builds the enriched docs/data/releases.json (accumulating one block per tag under
+# its release branch), commits it, and publishes the docs/ dashboard to GitHub Pages.
+#
+# One dispatch = fetch → structured data → commit → deploy.
 
 on:
   workflow_dispatch:
     inputs:
       fix_version:
-        description: 'Jira Fix Version (e.g., 26.7.0)'
+        description: 'Release tag / Jira fix version (e.g. 26.7.0)'
         required: true
         type: string
         default: '26.7.0'
 
+# Credentials: pulled from repo secrets when configured. If a secret is unset/empty,
+# scripts/build-release-data.sh falls back to its hardcoded POC values, so this
+# workflow runs out-of-the-box against the POC and switches to secrets in prod.
 env:
   JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
   JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
   JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
 
 permissions:
-  contents: write
+  contents: write   # commit releases.json
+  pages: write      # deploy Pages
+  id-token: write   # required by deploy-pages
+
+# Avoid overlapping Pages deployments
+concurrency:
+  group: jira-release-dashboard
+  cancel-in-progress: false
 
 jobs:
-  fetch-jira-tickets:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/checkout@v4
 
-      - name: Fetch all ticket IDs and write docs/data/jira-tickets.json
-        id: fetch-tickets
+      - name: Build structured release data (docs/data/releases.json)
         run: |
-          set -e
-          echo "========================================="
-          echo "Fetching Jira tickets for Fix Version: ${{ inputs.fix_version }}"
-          echo "========================================="
+          chmod +x scripts/build-release-data.sh
+          ./scripts/build-release-data.sh "${{ inputs.fix_version }}"
 
-          # Validate secrets
-          if [ -z "${{ env.JIRA_BASE_URL }}" ]; then echo "❌ JIRA_BASE_URL not set"; exit 1; fi
-          if [ -z "${{ env.JIRA_EMAIL }}" ];    then echo "❌ JIRA_EMAIL not set";    exit 1; fi
-          if [ -z "${{ env.JIRA_API_TOKEN }}" ]; then echo "❌ JIRA_API_TOKEN not set"; exit 1; fi
-
-          echo "✅ All required secrets are configured"
-          echo "🔍 Fix Version : ${{ inputs.fix_version }}"
-
-          # base64 -w 0 prevents line-wrapping on Linux (default wraps at 76 chars,
-          # which silently corrupts the Authorization header)
-          AUTH=$(echo -n "${{ env.JIRA_EMAIL }}:${{ env.JIRA_API_TOKEN }}" | base64 -w 0)
-          echo "🔍 Auth header byte length: ${#AUTH}"
-
-          ENDPOINT="${{ env.JIRA_BASE_URL }}/rest/api/3/search/jql"
-          JQL='cf[10104] = "${{ inputs.fix_version }}"'
-
-          echo "🔍 Endpoint : $ENDPOINT"
-          echo "🔍 JQL      : $JQL"
-
-          # Temp file to accumulate keys across pages
-          KEYS_FILE=$(mktemp)
-          PAGE=1
-          NEXT_PAGE_TOKEN=""
-          TOTAL_FETCHED=0
-
-          # ─────────────────────────────────────────────────────────────────────
-          # Paginate using nextPageToken (replaces startAt on /search/jql)
-          # ─────────────────────────────────────────────────────────────────────
-          while true; do
-            echo ""
-            echo "--- Page $PAGE (fetched so far: $TOTAL_FETCHED) ---"
-
-            # Build request body — include nextPageToken on pages 2+
-            # customfield_10104 must be included in fields — omitting a custom field
-            # used in the JQL filter causes Jira Cloud to return 0 results silently
-            if [ -z "$NEXT_PAGE_TOKEN" ]; then
-              REQUEST_BODY=$(jq -n \
-                --arg jql "$JQL" \
-                --argjson maxResults 100 \
-                '{jql: $jql, fields: ["key","customfield_10104"], maxResults: $maxResults}')
-            else
-              REQUEST_BODY=$(jq -n \
-                --arg jql "$JQL" \
-                --arg nextPageToken "$NEXT_PAGE_TOKEN" \
-                --argjson maxResults 100 \
-                '{jql: $jql, fields: ["key","customfield_10104"], maxResults: $maxResults, nextPageToken: $nextPageToken}')
-            fi
-
-            echo "📤 Request body: $(echo "$REQUEST_BODY" | jq -c '.')"
-
-            set +e
-            HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" \
-              -X POST --http1.1 \
-              -H "Authorization: Basic $AUTH" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "$REQUEST_BODY" \
-              "$ENDPOINT" 2>&1)
-            CURL_EXIT=$?
-            set -e
-
-            if [ $CURL_EXIT -ne 0 ]; then
-              echo "❌ curl failed on page $PAGE (exit $CURL_EXIT)"
-              echo "$HTTP_RESPONSE"
-              exit 1
-            fi
-
-            HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
-            RESPONSE=$(echo "$HTTP_RESPONSE" | sed '$d')
-
-            echo "🔍 HTTP Status: $HTTP_CODE"
-
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "❌ Request failed (HTTP $HTTP_CODE)"
-              echo "📄 Response:"
-              echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
-              exit 1
-            fi
-
-            # Validate structure on first page
-            if [ "$PAGE" -eq 1 ]; then
-              HAS_ISSUES=$(echo "$RESPONSE" | jq 'has("issues")' 2>/dev/null || echo "false")
-              if [ "$HAS_ISSUES" != "true" ]; then
-                echo "❌ Unexpected response structure — 'issues' key missing"
-                echo "📄 Full response:"
-                echo "$RESPONSE" | jq '.' 2>/dev/null || echo "$RESPONSE"
-                exit 1
-              fi
-              TOTAL=$(echo "$RESPONSE" | jq -r '.total // 0')
-              echo "📊 Total tickets reported by Jira: $TOTAL"
-
-              if [ "$TOTAL" -eq 0 ]; then
-                echo ""
-                echo "⚠️  No tickets found for: $JQL"
-                echo ""
-                echo "Possible causes:"
-                echo "  1. Value mismatch — check exact string stored in cf[10104] in Jira"
-                echo "  2. API token lacks access to the project"
-                echo "  3. No issues have this value set"
-                echo ""
-                echo "🔍 Sampling cf[10104] from the 20 most recently created issues..."
-                set +e
-                curl -s -X POST --http1.1 \
-                  -H "Authorization: Basic $AUTH" \
-                  -H "Content-Type: application/json" \
-                  -H "Accept: application/json" \
-                  -d "$(jq -n '{jql:"order by created DESC",fields:["key","customfield_10104"],maxResults:20}')" \
-                  "$ENDPOINT" 2>/dev/null \
-                  | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' 2>/dev/null \
-                  || echo "  (could not fetch sample)"
-                set -e
-                exit 0
-              fi
-            fi
-
-            # Extract keys from this page and append to temp file
-            PAGE_KEYS=$(echo "$RESPONSE" | jq -r '.issues[].key')
-            PAGE_COUNT=$(echo "$RESPONSE" | jq '.issues | length')
-            echo "$PAGE_KEYS" >> "$KEYS_FILE"
-            TOTAL_FETCHED=$((TOTAL_FETCHED + PAGE_COUNT))
-            echo "📄 Keys on this page: $PAGE_COUNT  |  Running total: $TOTAL_FETCHED"
-            echo "$PAGE_KEYS"
-
-            # Check for next page
-            NEXT_PAGE_TOKEN=$(echo "$RESPONSE" | jq -r '.nextPageToken // empty')
-            if [ -z "$NEXT_PAGE_TOKEN" ]; then
-              echo ""
-              echo "✅ All pages fetched — no nextPageToken in last response"
-              break
-            fi
-
-            echo "🔍 nextPageToken present — fetching next page..."
-            PAGE=$((PAGE + 1))
-          done
-
-          echo ""
-          echo "📊 Total ticket IDs collected: $TOTAL_FETCHED"
-
-          # ─────────────────────────────────────────────────────────────────────
-          # Write docs/data/jira-tickets.json
-          # ─────────────────────────────────────────────────────────────────────
-          mkdir -p docs/data
-
-          # Build JSON array from the collected keys
-          TICKETS_JSON=$(jq -R . "$KEYS_FILE" | jq -s \
-            --arg fixVersion "${{ inputs.fix_version }}" \
-            --arg generatedAt "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-            --argjson total "$TOTAL_FETCHED" \
-            '{
-              fixVersion: $fixVersion,
-              generatedAt: $generatedAt,
-              total: $total,
-              tickets: .
-            }')
-
-          echo "$TICKETS_JSON" > docs/data/jira-tickets.json
-          echo "💾 docs/data/jira-tickets.json written ($(wc -c < docs/data/jira-tickets.json) bytes)"
-          echo ""
-          echo "📄 File preview:"
-          cat docs/data/jira-tickets.json
-
-      - name: Commit and push jira-tickets.json
+      - name: Commit updated dashboard data
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add docs/data/jira-tickets.json
-
+          git add docs/data/releases.json docs/index.html
           if git diff --cached --quiet; then
-            echo "ℹ️  No changes to docs/data/jira-tickets.json — nothing to commit"
+            echo "ℹ️  No dashboard changes to commit"
           else
-            git commit -m "chore: update jira-tickets.json for fix version ${{ inputs.fix_version }}"
+            git commit -m "chore: release dashboard data for ${{ inputs.fix_version }}"
             git push
-            echo "✅ docs/data/jira-tickets.json committed and pushed"
+            echo "✅ Committed and pushed dashboard update"
           fi
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
