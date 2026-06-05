@@ -1,0 +1,15 @@
+{
+  "totalReleases": 13,
+  "totalTickets": 52,
+  "totalCommits": 140,
+  "successRate": 99,
+
+  "releases": [
+    {
+      "tag": "26.7.0",
+      "date": "2026-05-09",
+      "tickets": 15,
+      "confluence": ""
+    }
+  ]
+}

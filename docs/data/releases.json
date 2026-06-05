@@ -1,193 +1,156 @@
 {
-  "generatedAt": "2026-06-05T14:25:16Z",
-  "totalReleases": 1,
-  "totalTickets": 7,
-  "totalDone": 1,
-  "totalEpics": 1,
-  "branches": [
-    "26.7.x"
-  ],
+  "totalReleases": 13,
+  "totalTickets": 52,
+  "totalCommits": 140,
+  "successRate": 99,
   "releases": [
     {
-      "tag": "26.7.0",
+      "tag": "26.7.15",
       "branch": "26.7.x",
-      "date": "2026-06-05T14:25:16Z",
-      "ticket_count": 7,
-      "tickets_done": 1,
-      "summary": {
-        "byStatus": {
-          "To Do": 6,
-          "Done": 1
-        },
-        "unassigned": 2,
-        "carriedOver": 0,
-        "assignees": [
-          "Nikitha KN"
-        ],
-        "epicCount": 1
-      },
+      "date": "2026-06-05T16:08:40Z",
+      "confluence": "https://writetonikithakn.atlassian.net/pages/viewpage.action?pageId=65705",
+      "ticket_count": 6,
+      "tickets_done": 0,
       "tickets": [
         {
           "id": "KAN-10",
           "summary": "Test 6 ticket",
           "status": "To Do",
-          "statusCategory": "new",
           "type": "Story",
           "priority": "Medium",
           "assignee": "Nikitha KN",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-05-16T16:45:07.140+0530",
-          "updated": "2026-06-05T19:54:41.199+0530",
-          "resolved": null,
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
           "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-10"
-        },
-        {
-          "id": "KAN-9",
-          "summary": "Test 5 ticket",
-          "status": "To Do",
-          "statusCategory": "new",
-          "type": "Story",
-          "priority": "Medium",
-          "assignee": "Unassigned",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-05-16T16:43:46.357+0530",
-          "updated": "2026-05-16T16:44:49.756+0530",
-          "resolved": null,
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
-          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-9"
-        },
-        {
-          "id": "KAN-8",
-          "summary": "Test 4 ticket",
-          "status": "To Do",
-          "statusCategory": "new",
-          "type": "Story",
-          "priority": "Medium",
-          "assignee": "Nikitha KN",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-05-16T16:43:19.304+0530",
-          "updated": "2026-05-16T16:43:33.905+0530",
-          "resolved": null,
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
-          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-8"
-        },
-        {
-          "id": "KAN-7",
-          "summary": "Test 3 ticket",
-          "status": "To Do",
-          "statusCategory": "new",
-          "type": "Story",
-          "priority": "Medium",
-          "assignee": "Nikitha KN",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-05-16T16:42:29.695+0530",
-          "updated": "2026-05-16T16:42:52.413+0530",
-          "resolved": null,
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
-          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-7"
-        },
-        {
-          "id": "KAN-6",
-          "summary": "Test 3 ticket",
-          "status": "To Do",
-          "statusCategory": "new",
-          "type": "Story",
-          "priority": "Medium",
-          "assignee": "Unassigned",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-05-16T16:41:58.273+0530",
-          "updated": "2026-05-16T16:42:11.709+0530",
-          "resolved": null,
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
-          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-6"
         },
         {
           "id": "KAN-5",
           "summary": "TEST 2 Ticket",
           "status": "To Do",
-          "statusCategory": "new",
           "type": "Story",
           "priority": "Medium",
           "assignee": "Nikitha KN",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-05-16T16:41:13.647+0530",
-          "updated": "2026-05-16T16:42:57.748+0530",
-          "resolved": null,
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
           "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-5"
         },
         {
-          "id": "KAN-1",
-          "summary": "TEST-123",
-          "status": "Done",
-          "statusCategory": "done",
+          "id": "KAN-6",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-6"
+        },
+        {
+          "id": "KAN-7",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
           "type": "Story",
           "priority": "Medium",
           "assignee": "Nikitha KN",
-          "reporter": "Nikitha KN",
-          "epic": "KAN-4",
-          "epicTitle": "Test Epic",
-          "labels": [],
-          "components": [],
-          "created": "2026-04-18T11:24:15.679+0530",
-          "updated": "2026-05-30T20:58:19.861+0530",
-          "resolved": "2026-04-23T15:20:26.566+0530",
-          "tags": [
-            "26.7.0"
-          ],
-          "carriedOver": false,
-          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-1"
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-7"
+        },
+        {
+          "id": "KAN-8",
+          "summary": "Test 4 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-8"
+        },
+        {
+          "id": "KAN-9",
+          "summary": "Test 5 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-9"
         }
       ],
       "epics": [
         {
           "epic": "KAN-4",
-          "title": "Test Epic"
+          "title": "Test Epic",
+          "short": "King of Fruits: Mango is considered the 'king of all fruits' and is highly regarded "
         }
       ]
+    },
+    {
+      "tag": "26.7.9",
+      "branch": "26.7.x",
+      "date": "2026-05-16T14:09:51Z",
+      "confluence": "https://writetonikithakn.atlassian.net/pages/viewpage.action?pageId=65705",
+      "ticket_count": 6,
+      "tickets_done": 0,
+      "tickets": [
+        {
+          "id": "KAN-10",
+          "summary": "Test 6 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-10"
+        },
+        {
+          "id": "KAN-5",
+          "summary": "TEST 2 Ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-5"
+        },
+        {
+          "id": "KAN-6",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-6"
+        },
+        {
+          "id": "KAN-7",
+          "summary": "Test 3 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-7"
+        },
+        {
+          "id": "KAN-8",
+          "summary": "Test 4 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-8"
+        },
+        {
+          "id": "KAN-9",
+          "summary": "Test 5 ticket",
+          "status": "To Do",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-9"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-4",
+          "title": "Test Epic",
+          "short": "King of Fruits: Mango is considered the 'king of all fruits' and is highly regarded "
+        }
+      ]
+    },
+    {
+      "tag": "26.7.6",
+      "date": "2026-05-16",
+      "tickets": 15,
+      "confluence": ""
     }
   ]
 }
