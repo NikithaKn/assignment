@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-05T14:15:09Z",
+  "generatedAt": "2026-06-05T14:25:16Z",
   "totalReleases": 1,
   "totalTickets": 7,
   "totalDone": 1,
@@ -11,7 +11,7 @@
     {
       "tag": "26.7.0",
       "branch": "26.7.x",
-      "date": "2026-06-05T14:15:09Z",
+      "date": "2026-06-05T14:25:16Z",
       "ticket_count": 7,
       "tickets_done": 1,
       "summary": {
@@ -19,7 +19,7 @@
           "To Do": 6,
           "Done": 1
         },
-        "unassigned": 3,
+        "unassigned": 2,
         "carriedOver": 0,
         "assignees": [
           "Nikitha KN"
@@ -34,14 +34,14 @@
           "statusCategory": "new",
           "type": "Story",
           "priority": "Medium",
-          "assignee": "Unassigned",
+          "assignee": "Nikitha KN",
           "reporter": "Nikitha KN",
           "epic": "KAN-4",
           "epicTitle": "Test Epic",
           "labels": [],
           "components": [],
           "created": "2026-05-16T16:45:07.140+0530",
-          "updated": "2026-05-30T21:04:25.497+0530",
+          "updated": "2026-06-05T19:54:41.199+0530",
           "resolved": null,
           "tags": [
             "26.7.0"
