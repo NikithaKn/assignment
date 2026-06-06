@@ -1,13 +1,147 @@
 {
-  "generatedAt": "2026-06-06T09:49:22Z",
-  "totalReleases": 3,
-  "totalTickets": 24,
+  "generatedAt": "2026-06-06T09:50:52Z",
+  "totalReleases": 4,
+  "totalTickets": 28,
   "totalDone": 7,
   "totalEpics": 5,
   "branches": [
     "26.7.x"
   ],
   "releases": [
+    {
+      "tag": "26.7.3",
+      "branch": "26.7.x",
+      "date": "2026-06-06T09:50:52Z",
+      "ticket_count": 4,
+      "tickets_done": 0,
+      "summary": {
+        "byStatus": {
+          "In Progress": 2,
+          "To Do": 2
+        },
+        "unassigned": 2,
+        "carriedOver": 2,
+        "assignees": [
+          "Nikitha KN"
+        ],
+        "epicCount": 3
+      },
+      "tickets": [
+        {
+          "id": "KAN-31",
+          "summary": "Push notification opt-in",
+          "status": "In Progress",
+          "statusCategory": "indeterminate",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-15",
+          "epicTitle": "Notifications",
+          "labels": [
+            "mobile"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:29.741+0530",
+          "updated": "2026-06-06T10:17:31.906+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.3"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-31"
+        },
+        {
+          "id": "KAN-28",
+          "summary": "Currency rounding fix",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-14",
+          "epicTitle": "Payments Platform",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:25.943+0530",
+          "updated": "2026-06-06T10:17:26.065+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.3",
+            "26.8.0"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-28"
+        },
+        {
+          "id": "KAN-27",
+          "summary": "3DS authentication",
+          "status": "In Progress",
+          "statusCategory": "indeterminate",
+          "type": "Story",
+          "priority": "Highest",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-14",
+          "epicTitle": "Payments Platform",
+          "labels": [
+            "backend",
+            "security"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:24.041+0530",
+          "updated": "2026-06-06T10:17:25.157+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.3"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-27"
+        },
+        {
+          "id": "KAN-20",
+          "summary": "Checkout latency tuning",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-12",
+          "epicTitle": "Checkout Revamp",
+          "labels": [
+            "performance"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:13.178+0530",
+          "updated": "2026-06-06T10:17:13.325+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.3",
+            "26.8.0"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-20"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-12",
+          "title": "Checkout Revamp"
+        },
+        {
+          "epic": "KAN-14",
+          "title": "Payments Platform"
+        },
+        {
+          "epic": "KAN-15",
+          "title": "Notifications"
+        }
+      ]
+    },
     {
       "tag": "26.7.2",
       "branch": "26.7.x",
