@@ -1,13 +1,172 @@
 {
-  "generatedAt": "2026-06-06T09:43:44Z",
-  "totalReleases": 1,
-  "totalTickets": 12,
+  "generatedAt": "2026-06-06T09:44:31Z",
+  "totalReleases": 2,
+  "totalTickets": 17,
   "totalDone": 4,
   "totalEpics": 4,
   "branches": [
     "26.7.x"
   ],
   "releases": [
+    {
+      "tag": "26.7.1",
+      "branch": "26.7.x",
+      "date": "2026-06-06T09:44:31Z",
+      "ticket_count": 5,
+      "tickets_done": 0,
+      "summary": {
+        "byStatus": {
+          "To Do": 3,
+          "In Progress": 2
+        },
+        "unassigned": 2,
+        "carriedOver": 3,
+        "assignees": [
+          "Nikitha KN"
+        ],
+        "epicCount": 3
+      },
+      "tickets": [
+        {
+          "id": "KAN-32",
+          "summary": "SMS fallback delivery",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "High",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-15",
+          "epicTitle": "Notifications",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:32.637+0530",
+          "updated": "2026-06-06T10:17:32.797+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.0",
+            "26.7.1",
+            "26.7.2"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-32"
+        },
+        {
+          "id": "KAN-23",
+          "summary": "Search analytics events",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Low",
+          "assignee": "Unassigned",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-13",
+          "epicTitle": "Search Improvements",
+          "labels": [
+            "analytics"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:18.386+0530",
+          "updated": "2026-06-06T10:17:18.624+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.1",
+            "26.7.2"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-23"
+        },
+        {
+          "id": "KAN-22",
+          "summary": "Fuzzy matching engine",
+          "status": "In Progress",
+          "statusCategory": "indeterminate",
+          "type": "Story",
+          "priority": "High",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-13",
+          "epicTitle": "Search Improvements",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:16.313+0530",
+          "updated": "2026-06-06T10:17:17.504+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.1"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-22"
+        },
+        {
+          "id": "KAN-18",
+          "summary": "Guest checkout flow",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "High",
+          "assignee": "Unassigned",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-12",
+          "epicTitle": "Checkout Revamp",
+          "labels": [
+            "frontend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:10.022+0530",
+          "updated": "2026-06-06T10:17:10.263+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.1"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-18"
+        },
+        {
+          "id": "KAN-17",
+          "summary": "Apply promo code at checkout",
+          "status": "In Progress",
+          "statusCategory": "indeterminate",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-12",
+          "epicTitle": "Checkout Revamp",
+          "labels": [
+            "frontend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:08.156+0530",
+          "updated": "2026-06-06T10:17:09.241+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.0",
+            "26.7.1"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-17"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-12",
+          "title": "Checkout Revamp"
+        },
+        {
+          "epic": "KAN-13",
+          "title": "Search Improvements"
+        },
+        {
+          "epic": "KAN-15",
+          "title": "Notifications"
+        }
+      ]
+    },
     {
       "tag": "26.7.0",
       "branch": "26.7.x",
