@@ -121,7 +121,7 @@
     <div class="chart"><h3>Tickets by priority</h3><div class="cv"><canvas id="c-priority"></canvas></div></div>
     <div class="chart"><h3>Tickets by hotfix tag</h3><div class="cv"><canvas id="c-bytag"></canvas></div></div>
     <div class="chart"><h3>Tickets by epic</h3><div class="cv"><canvas id="c-byepic"></canvas></div></div>
-    <div class="chart wide"><h3>Cumulative delivery across hotfix tags</h3><div class="cv"><canvas id="c-cumulative"></canvas></div></div>
+    <div class="chart wide"><h3>Cumulative delivery across tags</h3><div class="cv"><canvas id="c-cumulative"></canvas></div></div>
   </div>
 
   <div class="controls">
@@ -175,7 +175,7 @@ function renderKpis(d) {
   const pct = all.length ? Math.round((done / all.length) * 100) : 0;
   const cards = [
     ["Release Lines", linesOf(d).length, ""],
-    ["Hotfix Tags", rels.length, ""],
+    ["Tags", rels.length, ""],
     ["Tickets", all.length, ""],
     ["% Done", pct + "%", ""],
     ["In Progress", all.filter(isProg).length, ""],
