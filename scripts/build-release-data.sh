@@ -194,7 +194,7 @@ echo "$EXISTING" | jq \
   --argjson entry "$NEW_ENTRY" \
   --arg generatedAt "$NOW" \
   '
-  ( [ .releases[]? | select(.tag != $entry.tag) ] + [$entry] )
+  ( [ .releases[]? | select(.tag != $entry.tag and (.tickets | type) == "array") ] + [$entry] )
     | sort_by( .tag | split(".") | map(tonumber? // 0) ) | reverse
   as $rel
   | {
