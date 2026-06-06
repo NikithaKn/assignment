@@ -1,13 +1,118 @@
 {
-  "generatedAt": "2026-06-06T09:50:52Z",
-  "totalReleases": 4,
-  "totalTickets": 28,
+  "generatedAt": "2026-06-06T09:51:19Z",
+  "totalReleases": 5,
+  "totalTickets": 31,
   "totalDone": 7,
   "totalEpics": 5,
   "branches": [
-    "26.7.x"
+    "26.7.x",
+    "26.8.x"
   ],
   "releases": [
+    {
+      "tag": "26.8.0",
+      "branch": "26.8.x",
+      "date": "2026-06-06T09:51:19Z",
+      "ticket_count": 3,
+      "tickets_done": 0,
+      "summary": {
+        "byStatus": {
+          "To Do": 3
+        },
+        "unassigned": 1,
+        "carriedOver": 2,
+        "assignees": [
+          "Nikitha KN"
+        ],
+        "epicCount": 2
+      },
+      "tickets": [
+        {
+          "id": "KAN-29",
+          "summary": "Payment webhook retries",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-14",
+          "epicTitle": "Payments Platform",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:26.995+0530",
+          "updated": "2026-06-06T10:17:27.069+0530",
+          "resolved": null,
+          "tags": [
+            "26.8.0"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-29"
+        },
+        {
+          "id": "KAN-28",
+          "summary": "Currency rounding fix",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Unassigned",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-14",
+          "epicTitle": "Payments Platform",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:25.943+0530",
+          "updated": "2026-06-06T10:17:26.065+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.3",
+            "26.8.0"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-28"
+        },
+        {
+          "id": "KAN-20",
+          "summary": "Checkout latency tuning",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-12",
+          "epicTitle": "Checkout Revamp",
+          "labels": [
+            "performance"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:13.178+0530",
+          "updated": "2026-06-06T10:17:13.325+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.3",
+            "26.8.0"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-20"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-12",
+          "title": "Checkout Revamp"
+        },
+        {
+          "epic": "KAN-14",
+          "title": "Payments Platform"
+        }
+      ]
+    },
     {
       "tag": "26.7.3",
       "branch": "26.7.x",
