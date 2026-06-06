@@ -472,7 +472,14 @@ async function main() {
     const res = await fetch("data/releases.json", { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const d = await res.json();
-    d._base = (d.releases?.[0]?.tickets?.[0]?.link || "").replace(/\/browse\/.*$/, "");
+    // Normalize: tolerate legacy/partial entries (e.g. a release where tickets/epics
+    // isn't an array) so the dashboard degrades gracefully instead of crashing.
+    d.releases = (d.releases || []).map(r => ({
+      ...r,
+      tickets: Array.isArray(r.tickets) ? r.tickets : [],
+      epics: Array.isArray(r.epics) ? r.epics : [],
+    }));
+    d._base = (d.releases.find(r => r.tickets[0])?.tickets[0]?.link || "").replace(/\/browse\/.*$/, "");
     STATE.data = d;
     document.getElementById("generated").textContent = "updated " + fmtDate(d.generatedAt);
 
@@ -489,8 +496,8 @@ async function main() {
     rerender();
   } catch (e) {
     document.querySelector(".wrap").innerHTML =
-      `<div class="err"><b>Could not load data/releases.json</b><br>${esc(e.message)}<br>
-       Serve this folder over HTTP (e.g. <code>python3 -m http.server</code>) — opening the file directly blocks fetch.</div>`;
+      `<div class="err"><b>Could not load or render the dashboard</b><br>${esc(e.message)}<br>
+       If this is a fetch error, serve this folder over HTTP (e.g. <code>python3 -m http.server</code>) — opening the file directly blocks fetch.</div>`;
   }
 }
 main();
