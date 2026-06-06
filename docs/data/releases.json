@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-06-06T09:32:00Z",
-  "totalReleases": 5,
-  "totalTickets": 29,
-  "totalDone": 4,
-  "totalEpics": 4,
+  "generatedAt": "2026-06-06T09:32:37Z",
+  "totalReleases": 6,
+  "totalTickets": 36,
+  "totalDone": 7,
+  "totalEpics": 5,
   "branches": [
     null,
     "26.7.x"
@@ -156,6 +156,222 @@
       "date": "2026-05-16",
       "tickets": 15,
       "confluence": ""
+    },
+    {
+      "tag": "26.7.2",
+      "branch": "26.7.x",
+      "date": "2026-06-06T09:32:37Z",
+      "ticket_count": 7,
+      "tickets_done": 3,
+      "summary": {
+        "byStatus": {
+          "Done": 3,
+          "To Do": 3,
+          "In Review": 1
+        },
+        "unassigned": 1,
+        "carriedOver": 2,
+        "assignees": [
+          "Nikitha KN"
+        ],
+        "epicCount": 5
+      },
+      "tickets": [
+        {
+          "id": "KAN-33",
+          "summary": "Legacy data cleanup",
+          "status": "Done",
+          "statusCategory": "done",
+          "type": "Story",
+          "priority": "Low",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-4",
+          "epicTitle": "Test Epic",
+          "labels": [
+            "infra"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:33.907+0530",
+          "updated": "2026-06-06T10:17:35.084+0530",
+          "resolved": "2026-06-06T10:17:35.057+0530",
+          "tags": [
+            "26.7.2"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-33"
+        },
+        {
+          "id": "KAN-32",
+          "summary": "SMS fallback delivery",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "High",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-15",
+          "epicTitle": "Notifications",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:32.637+0530",
+          "updated": "2026-06-06T10:17:32.797+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.0",
+            "26.7.1",
+            "26.7.2"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-32"
+        },
+        {
+          "id": "KAN-26",
+          "summary": "Refund API endpoint",
+          "status": "Done",
+          "statusCategory": "done",
+          "type": "Story",
+          "priority": "High",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-14",
+          "epicTitle": "Payments Platform",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:22.537+0530",
+          "updated": "2026-06-06T10:17:23.308+0530",
+          "resolved": "2026-06-06T10:17:23.292+0530",
+          "tags": [
+            "26.7.2"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-26"
+        },
+        {
+          "id": "KAN-25",
+          "summary": "Search index rebuild job",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Highest",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-13",
+          "epicTitle": "Search Improvements",
+          "labels": [
+            "backend",
+            "infra"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:21.350+0530",
+          "updated": "2026-06-06T10:17:21.511+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.2"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-25"
+        },
+        {
+          "id": "KAN-24",
+          "summary": "Filter facets UI",
+          "status": "Done",
+          "statusCategory": "done",
+          "type": "Story",
+          "priority": "Medium",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-13",
+          "epicTitle": "Search Improvements",
+          "labels": [
+            "frontend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:19.705+0530",
+          "updated": "2026-06-06T10:17:20.576+0530",
+          "resolved": "2026-06-06T10:17:20.555+0530",
+          "tags": [
+            "26.7.2"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-24"
+        },
+        {
+          "id": "KAN-23",
+          "summary": "Search analytics events",
+          "status": "To Do",
+          "statusCategory": "new",
+          "type": "Story",
+          "priority": "Low",
+          "assignee": "Unassigned",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-13",
+          "epicTitle": "Search Improvements",
+          "labels": [
+            "analytics"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:18.386+0530",
+          "updated": "2026-06-06T10:17:18.624+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.1",
+            "26.7.2"
+          ],
+          "carriedOver": true,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-23"
+        },
+        {
+          "id": "KAN-19",
+          "summary": "Address validation service",
+          "status": "In Review",
+          "statusCategory": "indeterminate",
+          "type": "Story",
+          "priority": "Highest",
+          "assignee": "Nikitha KN",
+          "reporter": "Nikitha KN",
+          "epic": "KAN-12",
+          "epicTitle": "Checkout Revamp",
+          "labels": [
+            "backend"
+          ],
+          "components": [],
+          "created": "2026-06-06T10:17:11.338+0530",
+          "updated": "2026-06-06T10:17:12.321+0530",
+          "resolved": null,
+          "tags": [
+            "26.7.2"
+          ],
+          "carriedOver": false,
+          "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-19"
+        }
+      ],
+      "epics": [
+        {
+          "epic": "KAN-12",
+          "title": "Checkout Revamp"
+        },
+        {
+          "epic": "KAN-13",
+          "title": "Search Improvements"
+        },
+        {
+          "epic": "KAN-14",
+          "title": "Payments Platform"
+        },
+        {
+          "epic": "KAN-15",
+          "title": "Notifications"
+        },
+        {
+          "epic": "KAN-4",
+          "title": "Test Epic"
+        }
+      ]
     },
     {
       "tag": "26.7.1",
