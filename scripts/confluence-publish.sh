@@ -1,135 +1,166 @@
 #!/usr/bin/env bash
 #
-# Local test of the "Update Confluence" logic from
+# Publish a release section to the per-line Confluence page "Release Notes - <line>"
+# in the constant REL space. Mirrors the "Update Confluence" step of
 #   .github/workflows/Auto Tag from Sprint Branch.yml
 #
-# Mirrors these workflow steps, runnable locally:
-#   • Build Jira Table        (ticket + status HTML, from cf[10104] = TAG)
-#   • Fetch Epic Summaries    (deduped epic highlights)
-#   • Update Confluence       (GET version+body → prepend new section → PUT version+1)
+# Per release section it renders:
+#   • a readiness summary line (tickets / % done / high-prio open)
+#   • an "Action items" callout (tagged-not-merged, merged-untagged)
+#   • tickets grouped by epic, with Title / Status & Source lozenges / Assignee / Priority
+#   • a link to the GitHub Pages dashboard, and a provenance footer (UTC)
+# Re-running the SAME tag replaces that tag's section (idempotent).
 #
-# The page is resolved by RELEASE LINE: for any TAG (26.7.x / 26.7.0 / 26.7.1) the
-# line is 26.7, so the target page is titled "Release Notes - 26.7". The job finds
-# that page in the space and updates it; if absent, it creates and populates it.
-#
-# Usage:  ./scripts/confluence-publish.sh [TAG]
+# Usage:  ./scripts/confluence-publish.sh [TAG]      (TAG e.g. 26.7.0 / 26.7.1)
+#         optional env: COMMIT_IDS, DASHBOARD_BASE, REPO_URL, PREV_TAG
 #
 set -euo pipefail
 
-# ── Jira (POC) — source of ticket/epic data ────────────────────────────────
-JIRA_BASE_URL="${JIRA_BASE_URL:-https://writetonikithakn-1776491593410.atlassian.net}"
-JIRA_EMAIL="${JIRA_EMAIL:-writetonikithakn@gmail.com}"
-JIRA_API_TOKEN="${JIRA_API_TOKEN:-ATATT3xFfGF0oMb3NUbG0K6s9TfEowdqjxxzzbqsH4bqpUB1kZgXMUSjW9GwJ5xVafVM9TuOPLa23g1azr1jcpqj5XO-XCryKUIznAqAKg7cB4My8FqU6ucF2KEjW4cw_4FzGoYpb98J2lZwWCmMcLBUAUamnW6yUstcS84JKp0giFGBW3EZ8gk=EC5070A7}"
+# ── Jira (POC) ─────────────────────────────────────────────────────────────
+JIRA_BASE_URL="${JIRA_BASE_URL}"
+JIRA_EMAIL="${JIRA_EMAIL}"
+JIRA_API_TOKEN="${JIRA_API_TOKEN}"
 
-# ── Confluence — publish target (separate site) ────────────────────────────
-CONFLUENCE_BASE_URL="${CONFLUENCE_BASE_URL:-https://writetonikithakn.atlassian.net}"
-CONFLUENCE_EMAIL="${CONFLUENCE_EMAIL:-writetonikithakn@gmail.com}"
-CONFLUENCE_API_TOKEN="${CONFLUENCE_API_TOKEN:-ATATT3xFfGF0TCDOH_JUttrcagMrYFeHv7nYDRCwsBHRsFBVIsoIM401Y8BqPeTtTP6lslVQ2GKRSyIW-tzQ19u4DiGmtsBHw7UJhA2J0aX9j1akMWlWy84JvS8aRQ1s66U2BOD2EoWADPXYGW9bUzDed6kjRKkUJZnx0XMuBlY2BNLzi3UZ-Jg=14C34AB6}"
-SPACE_KEY="${SPACE_KEY:-MFS}"
+# ── Confluence ─────────────────────────────────────────────────────────────
+CONFLUENCE_BASE_URL="${CONFLUENCE_BASE_URL}"
+CONFLUENCE_EMAIL="${CONFLUENCE_EMAIL}"
+CONFLUENCE_API_TOKEN="${CONFLUENCE_API_TOKEN}"
+SPACE_KEY="REL"   # constant: dedicated "Release Notes" Confluence space
 
 TAG="${1:-26.7.0}"
-# Release line: strip the trailing .x / .N  →  26.7.1 / 26.7.x  ->  26.7
-LINE=$(echo "$TAG" | sed -E 's/\.[^.]*$//')
+LINE=$(echo "$TAG" | sed -E 's/\.[^.]*$//')          # 26.7.1 / 26.7.x -> 26.7
+BRANCH="${LINE}.x"
 PAGE_TITLE="Release Notes - $LINE"
+DASHBOARD_BASE="${DASHBOARD_BASE:-https://nikithakn.github.io/assignment}"
+DASH_LINK="${DASHBOARD_BASE}/#${BRANCH}"
+DATE_UTC=$(date -u +"%Y-%m-%d %H:%MZ")
+PROV="${PROV:-Generated $DATE_UTC by confluence-publish.sh}"
 
 JAUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
-cauth() { printf '%s' "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" | base64 | tr -d '\n'; }
-CAUTH=$(cauth)
+JIRA_SEARCH="$JIRA_BASE_URL/rest/api/3/search/jql"
+C_API="$CONFLUENCE_BASE_URL/wiki/rest/api/content"
+cauth=(-u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN")
 
-echo "================================================================"
-echo "Confluence publish test — tag $TAG → $CONFLUENCE_BASE_URL (space $SPACE_KEY)"
-echo "================================================================"
+WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 
-# ── 1. Tagged set (cf[10104]) + optional commit set → union ────────────────
-#    COMMIT_IDS (space/comma/newline separated keys) is optional; if provided
-#    the table classifies each ticket's Source, mirroring the workflow.
-curl -s -X POST \
-  -H "Authorization: Basic $JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+echo "=== Confluence release notes — $TAG → \"$PAGE_TITLE\" (space $SPACE_KEY) ==="
+
+# ── 1. Tagged (cf[10104]) keys + optional commit keys → union ──────────────
+curl -s -X POST -H "Authorization: Basic $JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
   -d "$(jq -n --arg jql "cf[10104] = \"$TAG\"" '{jql:$jql, fields:["key"], maxResults:1000}')" \
-  "$JIRA_BASE_URL/rest/api/3/search/jql" | jq -r '.issues[].key' > cf_ids.txt
-printf '%s\n' "${COMMIT_IDS:-}" | grep -oiE '[A-Za-z]+-[0-9]+' | tr 'a-z' 'A-Z' | sort -u > commit_ids.txt || true
-cat cf_ids.txt commit_ids.txt | sed '/^$/d' | sort -u > jira_ids.txt
-JIRA_IDS=$(cat jira_ids.txt)
-echo "Tagged: $(paste -sd' ' cf_ids.txt)"
-echo "Commits: $(paste -sd' ' commit_ids.txt)"
-echo "Union:  $(paste -sd' ' jira_ids.txt)"
+  "$JIRA_SEARCH" | jq -r '.issues[].key' > "$WORK/cf.txt"
+printf '%s\n' "${COMMIT_IDS:-}" | grep -oiE '[A-Za-z]+-[0-9]+' | tr 'a-z' 'A-Z' | sort -u > "$WORK/commit.txt" || true
+cat "$WORK/cf.txt" "$WORK/commit.txt" | sed '/^$/d' | sort -u > "$WORK/union.txt"
+echo "Tagged: $(paste -sd' ' "$WORK/cf.txt")"
+echo "Commits: $(paste -sd' ' "$WORK/commit.txt")"
 
-# ── 2. Build Jira Table (HTML) with combined-source classification ─────────
-{ echo "<table><tbody>"; echo "<tr><th>Ticket</th><th>Status</th><th>Source</th></tr>"; } > jira_table.html
-while read -r ticket; do
-  [ -z "$ticket" ] && continue
-  STATUS=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=status" | jq -r '.fields.status.name // "Unknown"')
-  grep -qx "$ticket" cf_ids.txt     && IN_CF=yes     || IN_CF=no
-  grep -qx "$ticket" commit_ids.txt && IN_COMMIT=yes || IN_COMMIT=no
-  if   [ "$IN_CF" = yes ] && [ "$IN_COMMIT" = yes ]; then SRC="Tagged + merged"
-  elif [ "$IN_CF" = yes ];                            then SRC="Tagged · not merged"
-  else                                                    SRC="Merged · fix version missing"
-  fi
-  echo "<tr><td><a href=\"$JIRA_BASE_URL/browse/$ticket\">$ticket</a></td><td>$STATUS</td><td>$SRC</td></tr>" >> jira_table.html
-done <<< "$JIRA_IDS"
-echo "</tbody></table>" >> jira_table.html
+if [ ! -s "$WORK/union.txt" ]; then
+  echo "⚠️  No tickets (tagged or committed) for $TAG — nothing to publish."; exit 0
+fi
 
-# ── 3. Fetch Epic Summaries (deduped) ──────────────────────────────────────
-echo "[]" > release_notes.json
-while read -r ticket; do
-  [ -z "$ticket" ] && continue
-  RESP=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=issuetype,parent")
-  [ "$(echo "$RESP" | jq -r '.fields.issuetype.name')" != "Story" ] && continue
-  EPIC_KEY=$(echo "$RESP" | jq -r '.fields.parent.key // empty'); [ -z "$EPIC_KEY" ] && continue
-  EPIC_RESP=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY?fields=summary,description")
-  EPIC_SUMMARY=$(echo "$EPIC_RESP" | jq -r '.fields.summary // ""')
-  EPIC_DESC=$(echo "$EPIC_RESP" | jq -r 'def extract: if type=="object" and has("content") then .content[]|extract elif type=="object" and has("text") then .text else empty end; .fields.description | extract' | tr "\n" " ")
-  SHORT=$(echo "$EPIC_DESC" | awk '{for(i=1;i<=15 && i<=NF;i++) printf $i" ";}')
-  if [ "$(jq --arg k "$EPIC_KEY" 'any(.[]; .epic==$k)' release_notes.json)" = "false" ]; then
-    jq --arg epic "$EPIC_KEY" --arg title "$EPIC_SUMMARY" --arg short "$SHORT" \
-      '. += [{"epic":$epic,"title":$title,"short":$short}]' release_notes.json > tmp.json && mv tmp.json release_notes.json
-  fi
-done <<< "$JIRA_IDS"
-echo "Epics:"; jq -r '.[] | "  \(.epic): \(.title)"' release_notes.json
+# ── 2. Bulk-fetch enriched fields for the union ─────────────────────────────
+KEYS_CSV=$(paste -sd, "$WORK/union.txt")
+curl -s -X POST -H "Authorization: Basic $JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+  -d "$(jq -n --arg jql "key in ($KEYS_CSV)" '{jql:$jql, fields:["summary","status","assignee","priority","issuetype","parent"], maxResults:1000}')" \
+  "$JIRA_SEARCH" > "$WORK/raw.json"
 
-# ── 4. Build the new release section ───────────────────────────────────────
-TABLE=$(cat jira_table.html)
-EPICS_JSON=$(cat release_notes.json)
-EPIC_HTML=$(echo "$EPICS_JSON" | jq -r '"<ul>" + (map("<li><b>" + .epic + "</b>: " + .title + " — " + .short + "</li>") | join("")) + "</ul>"')
-DATE=$(date)
-NEW_SECTION="<hr/><h2>Release $TAG</h2><p><b>Date:</b> $DATE</p><h3>Epic Highlights</h3>$EPIC_HTML<h3>Jira Tickets</h3>$TABLE"
+CF_JSON=$(jq -R . "$WORK/cf.txt" | jq -s 'map(select(length>0))')
+COMMIT_JSON=$(jq -R . "$WORK/commit.txt" | jq -s 'map(select(length>0))')
 
-# ── 5. Resolve the per-line page by TITLE, then update-or-create ────────────
-echo "Looking up page titled \"$PAGE_TITLE\" in space ${SPACE_KEY} ..."
-FOUND=$(curl -s -G -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" \
-  --data-urlencode "title=$PAGE_TITLE" \
-  --data-urlencode "spaceKey=$SPACE_KEY" \
-  --data-urlencode "type=page" \
-  --data-urlencode "expand=version,body.storage" \
-  "$CONFLUENCE_BASE_URL/wiki/rest/api/content")
-PAGE_ID=$(echo "$FOUND" | jq -r '.results[0].id // empty')
+jq --arg base "$JIRA_BASE_URL" --argjson cf "$CF_JSON" --argjson commits "$COMMIT_JSON" '
+  [ .issues[]? | .key as $k
+    | ($cf | index($k) != null) as $inCf
+    | ($commits | index($k) != null) as $inC
+    | {
+        id: $k,
+        summary:  (.fields.summary // "—"),
+        status:   (.fields.status.name // "Unknown"),
+        statusCat:(.fields.status.statusCategory.key // "new"),
+        assignee: (.fields.assignee.displayName // "Unassigned"),
+        priority: (.fields.priority.name // "Medium"),
+        epic:      (if (.fields.parent.fields.issuetype.name // "")=="Epic" then .fields.parent.key else null end),
+        epicTitle: (if (.fields.parent.fields.issuetype.name // "")=="Epic" then .fields.parent.fields.summary else "No epic" end),
+        source: (if $inCf and $inC then "both" elif $inCf then "tagged_only" elif $inC then "commit_only" else "tagged_only" end),
+        link: ($base + "/browse/" + $k)
+      } ]' "$WORK/raw.json" > "$WORK/tickets.json"
+
+# ── 3. Render the section inner HTML (Confluence storage format) ────────────
+jq -r --arg dash "$DASH_LINK" --arg prov "$PROV" '
+  def esc: gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;");
+  def loz($colour;$title): "<ac:structured-macro ac:name=\"status\" ac:schema-version=\"1\">"
+      + "<ac:parameter ac:name=\"colour\">" + $colour + "</ac:parameter>"
+      + "<ac:parameter ac:name=\"title\">" + ($title|esc) + "</ac:parameter></ac:structured-macro>";
+  def statusLoz: loz((if .statusCat=="done" then "Green" elif .statusCat=="indeterminate" then "Yellow" else "Grey" end); .status);
+  def sourceLoz: (if .source=="both" then ["Green","tagged + merged"]
+                  elif .source=="tagged_only" then ["Yellow","not merged"]
+                  elif .source=="commit_only" then ["Blue","untagged"]
+                  else ["Grey","tagged"] end) as $s | loz($s[0]; $s[1]);
+  . as $t
+  | ($t|length) as $total
+  | ([$t[]|select(.statusCat=="done")]|length) as $done
+  | ([$t[]|select((.priority|ascii_downcase|test("high")) and .statusCat!="done")]|length) as $hi
+  | [$t[]|select(.source=="tagged_only")] as $pending
+  | [$t[]|select(.source=="commit_only")] as $missing
+  | (if $total>0 then (($done*100/$total)|floor) else 0 end) as $pct
+  | ("<p><b>" + ($total|tostring) + " tickets</b> · " + ($done|tostring) + " done (" + ($pct|tostring) + "%) · "
+      + ($hi|tostring) + " high-priority open</p>")
+  + (if ($pending|length)>0 or ($missing|length)>0 then
+      "<ac:structured-macro ac:name=\"info\"><ac:rich-text-body><p><strong>Action items</strong></p>"
+      + (if ($pending|length)>0 then "<p>⏳ <b>Tagged but not merged</b> (work pending): " + ([$pending[].id]|join(", ")) + "</p>" else "" end)
+      + (if ($missing|length)>0 then "<p>⚠️ <b>Merged but fix version missing</b> (please set cf[10104]): " + ([$missing[].id]|join(", ")) + "</p>" else "" end)
+      + "</ac:rich-text-body></ac:structured-macro>"
+     else "" end)
+  + "<p>📊 <a href=\"" + $dash + "\">Open in release dashboard</a></p>"
+  + ( [ $t | group_by(.epicTitle) | .[]
+        | "<h4>" + (.[0].epicTitle|esc) + (if .[0].epic then " (" + .[0].epic + ")" else "" end) + " — " + (length|tostring) + " ticket(s)</h4>"
+        + "<table><tbody><tr><th>Ticket</th><th>Title</th><th>Status</th><th>Assignee</th><th>Priority</th><th>Source</th></tr>"
+        + ( [ .[] | "<tr><td><a href=\"" + .link + "\">" + .id + "</a></td>"
+              + "<td>" + (.summary|esc) + "</td>"
+              + "<td>" + statusLoz + "</td>"
+              + "<td>" + (.assignee|esc) + "</td>"
+              + "<td>" + (.priority|esc) + "</td>"
+              + "<td>" + sourceLoz + "</td></tr>" ] | join("") )
+        + "</tbody></table>"
+      ] | join("") )
+  + "<p><em>" + ($prov|esc) + "</em></p>"
+' "$WORK/tickets.json" > "$WORK/inner.html"
+
+{ printf '<hr/><h2>Release %s</h2><p><b>Date:</b> %s</p>' "$TAG" "$DATE_UTC"; cat "$WORK/inner.html"; } > "$WORK/section.html"
+
+# ── 4. Find the per-line page, then update (idempotent per tag) or create ──
 TITLE_JSON=$(printf '%s' "$PAGE_TITLE" | jq -Rs .)
+FOUND=$(curl -s -G "${cauth[@]}" \
+  --data-urlencode "title=$PAGE_TITLE" --data-urlencode "spaceKey=$SPACE_KEY" \
+  --data-urlencode "type=page" --data-urlencode "expand=version,body.storage" "$C_API")
+PAGE_ID=$(echo "$FOUND" | jq -r '.results[0].id // empty')
 
 if [ -n "$PAGE_ID" ]; then
   VERSION=$(echo "$FOUND" | jq -r '.results[0].version.number')
-  EXISTING=$(echo "$FOUND" | jq -r '.results[0].body.storage.value')
+  echo "$FOUND" | jq -r '.results[0].body.storage.value' > "$WORK/existing.html"
+  # Idempotency: drop any existing section for THIS tag before prepending the fresh one.
+  TAG="$TAG" python3 - "$WORK/existing.html" > "$WORK/cleaned.html" <<'PY'
+import os, re, sys
+body = open(sys.argv[1]).read()
+tag = re.escape(os.environ["TAG"])
+pat = re.compile(r'<hr\s*/?>\s*<h2>Release ' + tag + r'</h2>.*?(?=<hr\s*/?>|$)', re.DOTALL)
+sys.stdout.write(pat.sub('', body))
+PY
   NEW_VERSION=$((VERSION + 1))
-  ESCAPED=$(printf '%s' "$NEW_SECTION $EXISTING" | jq -Rs .)
-  echo "Found page id=$PAGE_ID (version $VERSION) — prepending Release $TAG, updating to $NEW_VERSION ..."
-  RESULT=$(curl -s -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X PUT \
-    "$CONFLUENCE_BASE_URL/wiki/rest/api/content/$PAGE_ID" \
-    -H "Content-Type: application/json" \
+  cat "$WORK/section.html" "$WORK/cleaned.html" > "$WORK/final.html"
+  ESCAPED=$(jq -Rs . < "$WORK/final.html")
+  echo "Found \"$PAGE_TITLE\" (id=$PAGE_ID, v$VERSION) — replacing/prepending Release $TAG → v$NEW_VERSION"
+  RESULT=$(curl -s "${cauth[@]}" -X PUT "$C_API/$PAGE_ID" -H "Content-Type: application/json" \
     -d "{\"id\":\"$PAGE_ID\",\"type\":\"page\",\"title\":$TITLE_JSON,\"version\":{\"number\":$NEW_VERSION},\"body\":{\"storage\":{\"value\":$ESCAPED,\"representation\":\"storage\"}}}")
 else
-  echo "No page titled \"$PAGE_TITLE\" — creating and populating it ..."
-  ESCAPED=$(printf '%s' "$NEW_SECTION" | jq -Rs .)
-  RESULT=$(curl -s -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X POST \
-    -H "Content-Type: application/json" \
-    -d "{\"type\":\"page\",\"title\":$TITLE_JSON,\"space\":{\"key\":\"$SPACE_KEY\"},\"body\":{\"storage\":{\"value\":$ESCAPED,\"representation\":\"storage\"}}}" \
-    "$CONFLUENCE_BASE_URL/wiki/rest/api/content")
+  echo "No page titled \"$PAGE_TITLE\" — creating and populating it"
+  ESCAPED=$(jq -Rs . < "$WORK/section.html")
+  RESULT=$(curl -s "${cauth[@]}" -X POST -H "Content-Type: application/json" \
+    -d "{\"type\":\"page\",\"title\":$TITLE_JSON,\"space\":{\"key\":\"$SPACE_KEY\"},\"body\":{\"storage\":{\"value\":$ESCAPED,\"representation\":\"storage\"}}}" "$C_API")
   PAGE_ID=$(echo "$RESULT" | jq -r '.id // empty')
 fi
 
 if [ -z "$PAGE_ID" ] || [ "$(echo "$RESULT" | jq -r '.id // empty')" = "" ]; then
   echo "❌ Confluence operation failed:"; echo "$RESULT" | jq '.' 2>/dev/null || echo "$RESULT"; exit 1
 fi
-WEBUI=$(echo "$RESULT" | jq -r '(._links.base // "") + (._links.webui // "")')
-echo "✅ Page \"$PAGE_TITLE\" id=$PAGE_ID  version=$(echo "$RESULT" | jq -r '.version.number')"
-echo "🔗 ${WEBUI:-$CONFLUENCE_BASE_URL/wiki/spaces/$SPACE_KEY/pages/$PAGE_ID}"
-
-rm -f jira_table.html release_notes.json cf_ids.txt commit_ids.txt jira_ids.txt
+echo "✅ \"$PAGE_TITLE\" id=$PAGE_ID is now v$(echo "$RESULT" | jq -r '.version.number')"
+echo "🔗 $(echo "$RESULT" | jq -r '(._links.base // "") + (._links.webui // "")')"
