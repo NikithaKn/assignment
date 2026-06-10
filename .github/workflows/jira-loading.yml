@@ -1,4 +1,4 @@
-name: POC: Tags and Dashboard
+name: POC Tags and Dashboard
 
 on:
   workflow_dispatch:
