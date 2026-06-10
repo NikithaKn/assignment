@@ -1,4 +1,4 @@
-name: Pages-Layeek-Dashboard
+name: POC: Tags and Dashboard
 
 on:
   workflow_dispatch:
