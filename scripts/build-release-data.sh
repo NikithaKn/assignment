@@ -35,7 +35,8 @@ BRANCH="$(echo "$TAG" | sed -E 's/\.[0-9]+$/.x/')"
 # fix-version membership only). If SET (even empty), we classify against it.
 if [ "${COMMIT_IDS+set}" = "set" ]; then
   COMMITS_TRACKED="true"
-  COMMIT_KEYS_JSON=$(printf '%s\n' "$COMMIT_IDS" | grep -oiE '[A-Za-z][A-Za-z0-9_]*-[0-9]+' | tr 'a-z' 'A-Z' | sort -u | jq -R . | jq -s .)
+  # grep exits 1 when COMMIT_IDS has no ticket keys; tolerate that under `set -e`/pipefail.
+  COMMIT_KEYS_JSON=$(printf '%s\n' "$COMMIT_IDS" | { grep -oiE '[A-Za-z][A-Za-z0-9_]*-[0-9]+' || true; } | tr 'a-z' 'A-Z' | sort -u | jq -R . | jq -s 'map(select(length>0))')
 else
   COMMITS_TRACKED="false"
   COMMIT_KEYS_JSON='[]'
@@ -141,19 +142,19 @@ fi
 TICKET_COUNT=$(jq 'length' "$ISSUES_FILE")
 echo "📊 Total tickets for $TAG (tagged ∪ committed): $TICKET_COUNT"
 
-# Safety: don't write an empty release block (likely a wrong tag value or access issue).
-# Sample recent cf[10104] values to help diagnose, then exit cleanly without touching the file.
+# 0 tickets is a VALID outcome (fix version not set yet, or a tag cut with no work).
+# We still record an empty release block so the dashboard shows the cut happened.
+# Sample recent cf[10104] values to help spot a wrong/typo'd tag value.
 if [ "$TICKET_COUNT" -eq 0 ]; then
-  echo "⚠️  No tickets matched cf[10104] = \"$TAG\" — leaving $OUT_FILE unchanged."
-  echo "🔍 Recent cf[10104] values (for reference):"
+  echo "⚠️  No tickets matched cf[10104] = \"$TAG\"."
+  echo "🔍 Recent cf[10104] values (to spot a value/typo mismatch):"
   curl -s -X POST --http1.1 \
     -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
     -d "$(jq -n '{jql:"order by created DESC", fields:["key","customfield_10104"], maxResults:20}')" \
     "$ENDPOINT" 2>/dev/null \
     | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' 2>/dev/null \
     || echo "  (could not fetch sample)"
-  rm -f "$ISSUES_FILE"
-  exit 0
+  echo "➡️  Recording an empty release block for $TAG so the dashboard reflects the cut."
 fi
 
 # ─────────────────────────────────────────────────────────────────────
