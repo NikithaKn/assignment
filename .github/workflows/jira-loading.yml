@@ -1,4 +1,4 @@
-name: Auto Tag from Sprint Branch & Update Confluence
+name: Pages-Layeek-Dashboard
 
 on:
   workflow_dispatch:
