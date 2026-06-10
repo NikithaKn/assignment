@@ -1,4 +1,4 @@
-name: Pages-Layeek-Dashboard
+name: Auto Tag from Sprint Branch & Update Confluence
 
 on:
   workflow_dispatch:
@@ -354,7 +354,7 @@ jobs:
             echo "❌ Confluence update/create failed:"; echo "$RESULT" | jq '.' 2>/dev/null || echo "$RESULT"; exit 1
           fi
           echo "CONF_PAGE_ID=$PAGE_ID" >> "$GITHUB_ENV"
-          echo "CONFLUENCE_URL=$CONFLUENCE_BASE_URL/pages/viewpage.action?pageId=$PAGE_ID" >> "$GITHUB_ENV"
+          echo "CONFLUENCE_URL=$CONFLUENCE_BASE_URL/wiki/pages/viewpage.action?pageId=$PAGE_ID" >> "$GITHUB_ENV"
           echo "✅ \"$PAGE_TITLE\" id=$PAGE_ID is now v$(echo "$RESULT" | jq -r '.version.number')"
 
       # ✅ Create tag
@@ -375,7 +375,7 @@ jobs:
 
           DASHBOARD_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           # CONF_PAGE_ID was exported by the "Update Confluence" step (find-or-create by line)
-          CONFLUENCE_URL="$CONFLUENCE_BASE_URL/pages/viewpage.action?pageId=${CONF_PAGE_ID}"
+          CONFLUENCE_URL="$CONFLUENCE_BASE_URL/wiki/pages/viewpage.action?pageId=${CONF_PAGE_ID}"
 
           jq -n \
             --arg tag  "$TAG_NAME"      \
