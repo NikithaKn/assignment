@@ -1,4 +1,4 @@
-name: POC Tags and Dashboard
+name: Auto Tag from Sprint Branch & Update Confluence
 
 on:
   workflow_dispatch:
@@ -128,25 +128,51 @@ jobs:
       # ✅ Fetch Jira IDs From Fix Version
       - name: Fetch Jira IDs From Fix Version
         run: |
-
+          set -euo pipefail
           FIX_VERSION="${{ steps.tag.outputs.new_tag }}"
+          AUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
+          ENDPOINT="$JIRA_BASE_URL/rest/api/3/search/jql"
+          JQL="cf[10104] = \"$FIX_VERSION\""
 
-          AUTH=$(echo -n "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 -w 0)
+          echo "::group::Jira fetch context"
+          echo "Endpoint : $ENDPOINT"
+          echo "JQL      : $JQL"
+          WHO=$(curl -s -H "Authorization: Basic $AUTH" -H "Accept: application/json" "$JIRA_BASE_URL/rest/api/3/myself")
+          echo "Auth as  : $(echo "$WHO" | jq -r '.displayName + " <" + (.emailAddress // "n/a") + "> " + .accountId' 2>/dev/null || echo "UNKNOWN — JIRA_EMAIL/JIRA_API_TOKEN invalid?")"
+          echo "::endgroup::"
 
-          RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Basic $AUTH" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d "$(jq -n \
-              --arg jql "cf[10104] = \"$FIX_VERSION\"" \
-              '{jql:$jql,fields:["key"],maxResults:1000}')" \
-            "$JIRA_BASE_URL/rest/api/3/search/jql")
+          # Jira's JQL search is eventually consistent: a fix version set moments before
+          # the cut may not be indexed yet. Retry before concluding the release is empty.
+          ATTEMPTS=6; SLEEP=10; : > cf_ids.txt
+          for i in $(seq 1 "$ATTEMPTS"); do
+            RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST \
+              -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+              -d "$(jq -n --arg jql "$JQL" '{jql:$jql, fields:["key"], maxResults:100}')" "$ENDPOINT")
+            CODE=$(printf '%s' "$RESP" | tail -n1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+            if [ "$CODE" != "200" ]; then
+              echo "❌ Jira search failed (HTTP $CODE):"; echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+              echo "   → verify JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN and that the account can browse the project."
+              exit 1
+            fi
+            if ! echo "$BODY" | jq -e 'has("issues")' >/dev/null 2>&1; then
+              echo "❌ Unexpected Jira response (no .issues field):"; echo "$BODY"; exit 1
+            fi
+            COUNT=$(echo "$BODY" | jq '.issues | length')
+            echo "Attempt $i/$ATTEMPTS — $COUNT issue(s) match cf[10104] = \"$FIX_VERSION\""
+            if [ "$COUNT" -gt 0 ]; then echo "$BODY" | jq -r '.issues[].key' > cf_ids.txt; break; fi
+            if [ "$i" -lt "$ATTEMPTS" ]; then echo "  none indexed yet — retrying in ${SLEEP}s"; sleep "$SLEEP"; fi
+          done
 
-          # Tagged set (cf[10104]) kept SEPARATE so we can classify ticket source later.
-          echo "$RESPONSE" | jq -r '.issues[].key' > cf_ids.txt
-
-          echo "Tagged (cf[10104]) tickets:"
-          cat cf_ids.txt
+          echo "Tagged (cf[10104]) tickets: $(grep -c . cf_ids.txt || true)"
+          cat cf_ids.txt || true
+          if [ ! -s cf_ids.txt ]; then
+            echo "⚠️  0 tickets for \"$FIX_VERSION\" after $ATTEMPTS attempts (continuing; commit-derived IDs may still apply)."
+            echo "🔍 Most-recent cf[10104] values in the project (spot value/typo mismatches):"
+            curl -s --http1.1 -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+              -d "$(jq -n '{jql:"order by created DESC", fields:["key","customfield_10104"], maxResults:20}')" "$ENDPOINT" \
+              | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' || true
+          fi
 
       # ✅ Wait Until Hotfix PRs Are Merged
       - name: Wait Until Hotfix PRs Are Merged
@@ -244,11 +270,21 @@ jobs:
       #      both | tagged_only (cf, not merged) | commit_only (merged, fix version missing)
       - name: Build release tickets JSON
         run: |
-          KEYS_CSV=$(paste -sd, jira_ids.txt)
-          AUTH=$(echo -n "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 -w 0)
-          curl -s -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
-            -d "$(jq -n --arg jql "key in ($KEYS_CSV)" '{jql:$jql, fields:["summary","status","assignee","priority","issuetype","parent"], maxResults:1000}')" \
-            "$JIRA_BASE_URL/rest/api/3/search/jql" > raw.json
+          set -euo pipefail
+          AUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
+          if [ ! -s jira_ids.txt ]; then
+            echo "Union (cf[10104] ∪ commits) is empty — no tickets to enrich."
+            echo '{"issues":[]}' > raw.json
+          else
+            KEYS_CSV=$(paste -sd, jira_ids.txt)
+            echo "Bulk fetch: key in ($KEYS_CSV)"
+            RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+              -d "$(jq -n --arg jql "key in ($KEYS_CSV)" '{jql:$jql, fields:["summary","status","assignee","priority","issuetype","parent"], maxResults:100}')" \
+              "$JIRA_BASE_URL/rest/api/3/search/jql")
+            CODE=$(printf '%s' "$RESP" | tail -n1); printf '%s' "$RESP" | sed '$d' > raw.json
+            echo "Bulk fetch HTTP $CODE — issues returned: $(jq '.issues|length' raw.json 2>/dev/null || echo '?')"
+            if [ "$CODE" != "200" ]; then echo "❌ Bulk fetch failed:"; cat raw.json; exit 1; fi
+          fi
 
           CF_JSON=$(jq -R . cf_ids.txt | jq -s 'map(select(length>0))')
           COMMIT_JSON=$(jq -R . commit_ids.txt | jq -s 'map(select(length>0))')
@@ -326,6 +362,15 @@ jobs:
             --data-urlencode "title=$PAGE_TITLE" --data-urlencode "spaceKey=$SPACE_KEY" \
             --data-urlencode "type=page" --data-urlencode "expand=version,body.storage" \
             "$CONFLUENCE_BASE_URL/wiki/rest/api/content")
+          # A valid lookup always has a .results array. Anything else (403 "not permitted",
+          # 401, 404, HTML) means a creds/URL/license problem — fail loudly instead of
+          # mistaking it for "page not found" and creating a duplicate.
+          if ! echo "$FOUND" | jq -e 'has("results")' >/dev/null 2>&1; then
+            echo "❌ Confluence lookup failed — check CONFLUENCE_BASE_URL / CONFLUENCE_EMAIL / CONFLUENCE_API_TOKEN"
+            echo "   and that the token's account holds a Confluence license on this site."
+            echo "$FOUND" | jq '.' 2>/dev/null || echo "$FOUND"
+            exit 1
+          fi
           PAGE_ID=$(echo "$FOUND" | jq -r '.results[0].id // empty')
 
           if [ -n "$PAGE_ID" ]; then
@@ -354,7 +399,7 @@ jobs:
             echo "❌ Confluence update/create failed:"; echo "$RESULT" | jq '.' 2>/dev/null || echo "$RESULT"; exit 1
           fi
           echo "CONF_PAGE_ID=$PAGE_ID" >> "$GITHUB_ENV"
-          echo "CONFLUENCE_URL=$CONFLUENCE_BASE_URL/pages/viewpage.action?pageId=$PAGE_ID" >> "$GITHUB_ENV"
+          echo "CONFLUENCE_URL=$CONFLUENCE_BASE_URL/wiki/pages/viewpage.action?pageId=$PAGE_ID" >> "$GITHUB_ENV"
           echo "✅ \"$PAGE_TITLE\" id=$PAGE_ID is now v$(echo "$RESULT" | jq -r '.version.number')"
 
       # ✅ Create tag
@@ -362,6 +407,33 @@ jobs:
         run: |
           git tag ${{ steps.tag.outputs.new_tag }}
           git push origin ${{ steps.tag.outputs.new_tag }}
+
+      # ✅ Publish dashboard release data (GitHub Pages source = docs/** on the default branch)
+      #    Builds docs/data/releases.json for this tag (empty block if 0 tickets, so the cut
+      #    is still recorded) and commits it to main, which triggers pages.yml to redeploy.
+      - name: Publish dashboard release data
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-release-data.sh
+          export COMMIT_IDS="$(paste -sd' ' commit_ids.txt 2>/dev/null || true)"
+          echo "Building dashboard data for ${{ steps.tag.outputs.new_tag }} (COMMIT_IDS='$COMMIT_IDS')"
+          ./scripts/build-release-data.sh "${{ steps.tag.outputs.new_tag }}"
+          cp docs/data/releases.json /tmp/releases.json
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          mkdir -p docs/data
+          cp /tmp/releases.json docs/data/releases.json
+          git add docs/data/releases.json
+          if git diff --cached --quiet; then
+            echo "No dashboard changes to publish."
+          else
+            git commit -m "chore(dashboard): record release ${{ steps.tag.outputs.new_tag }}"
+            git push origin main
+            echo "✅ Dashboard data published to main → pages.yml will redeploy."
+          fi
 
       # ✅ Send Teams Notification
       - name: Send Teams Notification
@@ -375,7 +447,7 @@ jobs:
 
           DASHBOARD_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           # CONF_PAGE_ID was exported by the "Update Confluence" step (find-or-create by line)
-          CONFLUENCE_URL="$CONFLUENCE_BASE_URL/pages/viewpage.action?pageId=${CONF_PAGE_ID}"
+          CONFLUENCE_URL="$CONFLUENCE_BASE_URL/wiki/pages/viewpage.action?pageId=${CONF_PAGE_ID}"
 
           jq -n \
             --arg tag  "$TAG_NAME"      \
