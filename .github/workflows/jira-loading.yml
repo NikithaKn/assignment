@@ -28,6 +28,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ✅ Stage CI scripts from the default branch BEFORE we switch the working tree to the
+      #    sprint branch (which was cut earlier and may not contain these scripts).
+      - name: Stage CI scripts
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci"
+          cp scripts/fetch-release-tickets.sh "$RUNNER_TEMP/ci/"
+
       # ✅ Checkout branch
       - name: Checkout sprint branch
         run: |
@@ -57,7 +64,7 @@ jobs:
       # ✅ Fetch + classify tickets (INITIAL snapshot, before the freeze notice)
       #    so the notification can list the open work the team must close before the cut.
       - name: Fetch release tickets (initial)
-        run: bash scripts/fetch-release-tickets.sh "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
+        run: bash "$RUNNER_TEMP/ci/fetch-release-tickets.sh" "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
 
       # ✅ Notify Release Freeze Window Started — lists open work + assignees (anything not
       #    in a "done" status) as a FactSet so the team can finish/merge before the cut.
@@ -194,7 +201,7 @@ jobs:
       # ✅ Re-fetch + reclassify right before publishing, so any status / assignee / PR
       #    changes during the freeze window are reflected in Confluence and the dashboard.
       - name: Fetch release tickets (final, pre-publish)
-        run: bash scripts/fetch-release-tickets.sh "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
+        run: bash "$RUNNER_TEMP/ci/fetch-release-tickets.sh" "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
 
       # ✅ Update Confluence — resolve the per-line page by TITLE, update or create
       #    Release line = sprint branch minus the trailing segment (26.7.x -> 26.7).
