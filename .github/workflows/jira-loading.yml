@@ -54,21 +54,31 @@ jobs:
           if [ "$NEXT" -gt 0 ]; then PREV="${PREFIX}.$((NEXT - 1))"; else PREV=""; fi
           echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
 
-      # ✅ Notify Release Freeze Window Started
+      # ✅ Fetch + classify tickets (INITIAL snapshot, before the freeze notice)
+      #    so the notification can list the open work the team must close before the cut.
+      - name: Fetch release tickets (initial)
+        run: bash scripts/fetch-release-tickets.sh "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
+
+      # ✅ Notify Release Freeze Window Started — lists open work + assignees (anything not
+      #    in a "done" status) as a FactSet so the team can finish/merge before the cut.
       - name: Notify Release Freeze Window
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
 
         run: |
           TAG_NAME="${{ steps.tag.outputs.new_tag }}"
-
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           jq -n \
             --arg tag "$TAG_NAME" \
             --arg branch "${{ github.event.inputs.sprint_branch }}" \
             --arg run "$RUN_URL" \
-            '{
+            --slurpfile t tickets.json \
+            '($t[0] // []) as $all
+             | ($all | length) as $total
+             | ([ $all[] | select(.statusCat=="done") ] | length) as $done
+             | [ $all[] | select(.statusCat!="done") ] as $open
+             | {
               type: "message",
               attachments: [
                 {
@@ -77,34 +87,20 @@ jobs:
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     type: "AdaptiveCard",
                     version: "1.4",
-                    body: [
-                      {
-                        type: "TextBlock",
-                        size: "Large",
-                        weight: "Bolder",
-                        text: "⏳ Release Freeze Window Started"
-                      },
-                      {
-                        type: "TextBlock",
-                        text: ("Upcoming Tag: " + $tag)
-                      },
-                      {
-                        type: "TextBlock",
-                        text: ("Branch: " + $branch)
-                      },
-                      {
-                        type: "TextBlock",
-                        wrap: true,
-                        text: "Tag cut will happen after 20 mins.\nIf hotfix PRs are still open against this branch, release will wait automatically."
-                      }
-                    ],
-                    actions: [
-                      {
-                        type: "Action.OpenUrl",
-                        title: "View Workflow",
-                        url: $run
-                      }
-                    ]
+                    body: (
+                      [ {type:"TextBlock", size:"Large", weight:"Bolder", text:"⏳ Release Freeze Window Started"},
+                        {type:"TextBlock", text:("Upcoming Tag: " + $tag)},
+                        {type:"TextBlock", text:("Branch: " + $branch)},
+                        {type:"TextBlock", wrap:true, text:(($total|tostring) + " ticket(s) in this release · " + ($done|tostring) + " done · " + (($open|length)|tostring) + " still open")} ]
+                      + (if $total == 0
+                         then [ {type:"TextBlock", wrap:true, text:"⚠️ No tickets are tagged for this release yet."} ]
+                         elif ($open|length) > 0
+                         then [ {type:"TextBlock", weight:"Bolder", wrap:true, text:"🔧 Open work — please complete & merge before the cut:"},
+                                {type:"FactSet", facts: [ $open[] | {title:(.id + " · " + .status), value:("👤 " + .assignee + " — " + .summary)} ]} ]
+                         else [ {type:"TextBlock", wrap:true, text:"✅ All tickets are in a Done status."} ] end)
+                      + [ {type:"TextBlock", wrap:true, text:"Tag cut happens after the freeze window. Open hotfix PRs against this branch auto-extend the hold."} ]
+                    ),
+                    actions: [ {type:"Action.OpenUrl", title:"View Workflow", url:$run} ]
                   }
                 }
               ]
@@ -117,62 +113,6 @@ jobs:
       # ✅ Initial Release Hold
       - name: Initial Release Hold
         run: sleep 10
-
-      # ✅ Refresh branch after hotfix merges
-      - name: Refresh sprint branch
-        run: |
-          git fetch origin
-          git checkout "${{ github.event.inputs.sprint_branch }}"
-          git reset --hard "origin/${{ github.event.inputs.sprint_branch }}"
-
-      # ✅ Fetch Jira IDs From Fix Version
-      - name: Fetch Jira IDs From Fix Version
-        run: |
-          set -euo pipefail
-          FIX_VERSION="${{ steps.tag.outputs.new_tag }}"
-          AUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
-          ENDPOINT="$JIRA_BASE_URL/rest/api/3/search/jql"
-          JQL="cf[10104] = \"$FIX_VERSION\""
-
-          echo "::group::Jira fetch context"
-          echo "Endpoint : $ENDPOINT"
-          echo "JQL      : $JQL"
-          WHO=$(curl -s -H "Authorization: Basic $AUTH" -H "Accept: application/json" "$JIRA_BASE_URL/rest/api/3/myself")
-          echo "Auth as  : $(echo "$WHO" | jq -r '.displayName + " <" + (.emailAddress // "n/a") + "> " + .accountId' 2>/dev/null || echo "UNKNOWN — JIRA_EMAIL/JIRA_API_TOKEN invalid?")"
-          echo "::endgroup::"
-
-          # Jira's JQL search is eventually consistent: a fix version set moments before
-          # the cut may not be indexed yet. Retry before concluding the release is empty.
-          ATTEMPTS=6; SLEEP=10; : > cf_ids.txt
-          for i in $(seq 1 "$ATTEMPTS"); do
-            RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST \
-              -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
-              -d "$(jq -n --arg jql "$JQL" '{jql:$jql, fields:["key"], maxResults:100}')" "$ENDPOINT")
-            CODE=$(printf '%s' "$RESP" | tail -n1)
-            BODY=$(printf '%s' "$RESP" | sed '$d')
-            if [ "$CODE" != "200" ]; then
-              echo "❌ Jira search failed (HTTP $CODE):"; echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
-              echo "   → verify JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN and that the account can browse the project."
-              exit 1
-            fi
-            if ! echo "$BODY" | jq -e 'has("issues")' >/dev/null 2>&1; then
-              echo "❌ Unexpected Jira response (no .issues field):"; echo "$BODY"; exit 1
-            fi
-            COUNT=$(echo "$BODY" | jq '.issues | length')
-            echo "Attempt $i/$ATTEMPTS — $COUNT issue(s) match cf[10104] = \"$FIX_VERSION\""
-            if [ "$COUNT" -gt 0 ]; then echo "$BODY" | jq -r '.issues[].key' > cf_ids.txt; break; fi
-            if [ "$i" -lt "$ATTEMPTS" ]; then echo "  none indexed yet — retrying in ${SLEEP}s"; sleep "$SLEEP"; fi
-          done
-
-          echo "Tagged (cf[10104]) tickets: $(grep -c . cf_ids.txt || true)"
-          cat cf_ids.txt || true
-          if [ ! -s cf_ids.txt ]; then
-            echo "⚠️  0 tickets for \"$FIX_VERSION\" after $ATTEMPTS attempts (continuing; commit-derived IDs may still apply)."
-            echo "🔍 Most-recent cf[10104] values in the project (spot value/typo mismatches):"
-            curl -s --http1.1 -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
-              -d "$(jq -n '{jql:"order by created DESC", fields:["key","customfield_10104"], maxResults:20}')" "$ENDPOINT" \
-              | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' || true
-          fi
 
       # ✅ Wait Until Hotfix PRs Are Merged
       - name: Wait Until Hotfix PRs Are Merged
@@ -244,66 +184,17 @@ jobs:
             sleep 600
           done
 
-      # ✅ Collect Jira IDs from commits SINCE THE PREVIOUS TAG
-      #    (catches work that was merged but where the fix version wasn't set)
-      - name: Collect commit Jira IDs (since previous tag)
+      # ✅ Refresh branch after hotfix merges (so the final fetch sees merged commits)
+      - name: Refresh sprint branch
         run: |
-          PREV="${{ steps.tag.outputs.prev_tag }}"
-          if [ -n "$PREV" ] && git rev-parse "$PREV" >/dev/null 2>&1; then
-            RANGE="$PREV..HEAD"
-          else
-            RANGE="HEAD"   # first cut on the line — take everything reachable
-          fi
-          echo "Commit range: $RANGE"
-          git log $RANGE --pretty=format:"%s %b" \
-            | grep -oiE '[A-Z]+-[0-9]+' | tr 'a-z' 'A-Z' | sort -u > commit_ids.txt || true
-          echo "Commit-derived tickets:"; cat commit_ids.txt
+          git fetch origin
+          git checkout "${{ github.event.inputs.sprint_branch }}"
+          git reset --hard "origin/${{ github.event.inputs.sprint_branch }}"
 
-      # ✅ Union cf[10104] ∪ commit IDs → jira_ids.txt (full set for table + epics)
-      - name: Build union ticket list
-        run: |
-          cat cf_ids.txt commit_ids.txt 2>/dev/null | sed '/^$/d' | sort -u > jira_ids.txt
-          echo "Union tickets:"; cat jira_ids.txt
-
-      # ✅ Build enriched, classified tickets JSON (one bulk fetch over the union)
-      #    Each ticket carries title/status/assignee/priority/epic + source:
-      #      both | tagged_only (cf, not merged) | commit_only (merged, fix version missing)
-      - name: Build release tickets JSON
-        run: |
-          set -euo pipefail
-          AUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
-          if [ ! -s jira_ids.txt ]; then
-            echo "Union (cf[10104] ∪ commits) is empty — no tickets to enrich."
-            echo '{"issues":[]}' > raw.json
-          else
-            KEYS_CSV=$(paste -sd, jira_ids.txt)
-            echo "Bulk fetch: key in ($KEYS_CSV)"
-            RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
-              -d "$(jq -n --arg jql "key in ($KEYS_CSV)" '{jql:$jql, fields:["summary","status","assignee","priority","issuetype","parent"], maxResults:100}')" \
-              "$JIRA_BASE_URL/rest/api/3/search/jql")
-            CODE=$(printf '%s' "$RESP" | tail -n1); printf '%s' "$RESP" | sed '$d' > raw.json
-            echo "Bulk fetch HTTP $CODE — issues returned: $(jq '.issues|length' raw.json 2>/dev/null || echo '?')"
-            if [ "$CODE" != "200" ]; then echo "❌ Bulk fetch failed:"; cat raw.json; exit 1; fi
-          fi
-
-          CF_JSON=$(jq -R . cf_ids.txt | jq -s 'map(select(length>0))')
-          COMMIT_JSON=$(jq -R . commit_ids.txt | jq -s 'map(select(length>0))')
-
-          jq --arg base "$JIRA_BASE_URL" --argjson cf "$CF_JSON" --argjson commits "$COMMIT_JSON" '
-            [ .issues[]? | .key as $k
-              | ($cf | index($k) != null) as $inCf
-              | ($commits | index($k) != null) as $inC
-              | { id:$k,
-                  summary:  (.fields.summary // "—"),
-                  status:   (.fields.status.name // "Unknown"),
-                  statusCat:(.fields.status.statusCategory.key // "new"),
-                  assignee: (.fields.assignee.displayName // "Unassigned"),
-                  priority: (.fields.priority.name // "Medium"),
-                  epic:      (if (.fields.parent.fields.issuetype.name // "")=="Epic" then .fields.parent.key else null end),
-                  epicTitle: (if (.fields.parent.fields.issuetype.name // "")=="Epic" then .fields.parent.fields.summary else "No epic" end),
-                  source: (if $inCf and $inC then "both" elif $inCf then "tagged_only" elif $inC then "commit_only" else "tagged_only" end),
-                  link: ($base + "/browse/" + $k) } ]' raw.json > tickets.json
-          echo "tickets: $(jq length tickets.json)"
+      # ✅ Re-fetch + reclassify right before publishing, so any status / assignee / PR
+      #    changes during the freeze window are reflected in Confluence and the dashboard.
+      - name: Fetch release tickets (final, pre-publish)
+        run: bash scripts/fetch-release-tickets.sh "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
 
       # ✅ Update Confluence — resolve the per-line page by TITLE, update or create
       #    Release line = sprint branch minus the trailing segment (26.7.x -> 26.7).
@@ -414,18 +305,16 @@ jobs:
       - name: Publish dashboard release data
         run: |
           set -euo pipefail
-          chmod +x scripts/build-release-data.sh
           export COMMIT_IDS="$(paste -sd' ' commit_ids.txt 2>/dev/null || true)"
-          echo "Building dashboard data for ${{ steps.tag.outputs.new_tag }} (COMMIT_IDS='$COMMIT_IDS')"
-          ./scripts/build-release-data.sh "${{ steps.tag.outputs.new_tag }}"
-          cp docs/data/releases.json /tmp/releases.json
-
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git checkout main
-          mkdir -p docs/data
-          cp /tmp/releases.json docs/data/releases.json
+          # Switch to main FIRST (only untracked work files exist here, so this is clean), then
+          # build — so the merge base is main's releases.json, not the sprint branch's copy.
+          # -f is defensive in case a tracked file was touched earlier in the job.
+          git checkout -f -B main origin/main
+          echo "Building dashboard data for ${{ steps.tag.outputs.new_tag }} (COMMIT_IDS='$COMMIT_IDS')"
+          bash scripts/build-release-data.sh "${{ steps.tag.outputs.new_tag }}"
           git add docs/data/releases.json
           if git diff --cached --quiet; then
             echo "No dashboard changes to publish."
