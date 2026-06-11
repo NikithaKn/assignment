@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-06T09:51:19Z",
+  "generatedAt": "2026-06-11T06:45:38Z",
   "totalReleases": 5,
   "totalTickets": 31,
   "totalDone": 7,
@@ -12,19 +12,25 @@
     {
       "tag": "26.8.0",
       "branch": "26.8.x",
-      "date": "2026-06-06T09:51:19Z",
+      "date": "2026-06-11T06:45:38Z",
+      "commitsTracked": true,
       "ticket_count": 3,
       "tickets_done": 0,
       "summary": {
         "byStatus": {
           "To Do": 3
         },
-        "unassigned": 1,
+        "unassigned": 0,
         "carriedOver": 2,
         "assignees": [
           "Nikitha KN"
         ],
-        "epicCount": 2
+        "epicCount": 2,
+        "bySource": {
+          "both": 0,
+          "taggedOnly": 3,
+          "commitOnly": 0
+        }
       },
       "tickets": [
         {
@@ -49,6 +55,9 @@
             "26.8.0"
           ],
           "carriedOver": false,
+          "inFixVersion": true,
+          "inCommits": false,
+          "source": "tagged_only",
           "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-29"
         },
         {
@@ -58,7 +67,7 @@
           "statusCategory": "new",
           "type": "Story",
           "priority": "Medium",
-          "assignee": "Unassigned",
+          "assignee": "Nikitha KN",
           "reporter": "Nikitha KN",
           "epic": "KAN-14",
           "epicTitle": "Payments Platform",
@@ -67,13 +76,16 @@
           ],
           "components": [],
           "created": "2026-06-06T10:17:25.943+0530",
-          "updated": "2026-06-06T10:17:26.065+0530",
+          "updated": "2026-06-10T18:30:04.373+0530",
           "resolved": null,
           "tags": [
             "26.7.3",
             "26.8.0"
           ],
           "carriedOver": true,
+          "inFixVersion": true,
+          "inCommits": false,
+          "source": "tagged_only",
           "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-28"
         },
         {
@@ -99,6 +111,9 @@
             "26.8.0"
           ],
           "carriedOver": true,
+          "inFixVersion": true,
+          "inCommits": false,
+          "source": "tagged_only",
           "link": "https://writetonikithakn-1776491593410.atlassian.net/browse/KAN-20"
         }
       ],
