@@ -301,18 +301,18 @@ jobs:
 
       # ✅ Publish dashboard release data (GitHub Pages source = docs/** on the default branch)
       #    Builds docs/data/releases.json for this tag (empty block if 0 tickets, so the cut
-      #    is still recorded) and commits it to main, which triggers pages.yml to redeploy.
+      #    is still recorded) and commits it to master, which triggers pages.yml to redeploy.
       - name: Publish dashboard release data
         run: |
           set -euo pipefail
           export COMMIT_IDS="$(paste -sd' ' commit_ids.txt 2>/dev/null || true)"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          # Switch to main FIRST (only untracked work files exist here, so this is clean), then
-          # build — so the merge base is main's releases.json, not the sprint branch's copy.
+          git fetch origin master
+          # Switch to master FIRST (only untracked work files exist here, so this is clean), then
+          # build — so the merge base is master's releases.json, not the sprint branch's copy.
           # -f is defensive in case a tracked file was touched earlier in the job.
-          git checkout -f -B main origin/main
+          git checkout -f -B master origin/master
           echo "Building dashboard data for ${{ steps.tag.outputs.new_tag }} (COMMIT_IDS='$COMMIT_IDS')"
           bash scripts/build-release-data.sh "${{ steps.tag.outputs.new_tag }}"
           git add docs/data/releases.json
@@ -320,8 +320,8 @@ jobs:
             echo "No dashboard changes to publish."
           else
             git commit -m "chore(dashboard): record release ${{ steps.tag.outputs.new_tag }}"
-            git push origin main
-            echo "✅ Dashboard data published to main → pages.yml will redeploy."
+            git push origin master
+            echo "✅ Dashboard data published to master → pages.yml will redeploy."
           fi
 
       # ✅ Send Teams Notification
