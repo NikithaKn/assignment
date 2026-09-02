@@ -34,6 +34,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/ci"
           cp scripts/fetch-release-tickets.sh "$RUNNER_TEMP/ci/"
+          echo CONFLUENCE_BASE_URL
+          echo CONFLUENCE_API_TOKEN
 
       # ✅ Checkout branch
       - name: Checkout sprint branch
