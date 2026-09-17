@@ -11,6 +11,10 @@ on:
         description: 'Confluence space key to hold the per-line "Release Notes - <line>" page'
         required: true
         type: string
+      jira_pat:
+        description: 'Jira Personal Access Token (Bearer auth). WARNING: manual dispatch inputs are NOT masked — this value will be visible in plaintext in this run''s Inputs panel and re-run history to anyone with read access to Actions on this repo.'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -21,13 +25,17 @@ jobs:
 
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      JIRA_PAT: ${{ github.event.inputs.jira_pat }}
       CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
       CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
 
     steps:
+      # ✅ Redact the PAT from log output for the rest of the job (does not hide it
+      #    from this run's Inputs panel — manual workflow_dispatch inputs are never masked there).
+      - name: Mask Jira PAT in logs
+        run: echo "::add-mask::${{ github.event.inputs.jira_pat }}"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -135,10 +143,8 @@ jobs:
 
           FIX_VERSION="${{ steps.tag.outputs.new_tag }}"
 
-          AUTH=$(echo -n "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 -w 0)
-
           RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Basic $AUTH" \
+            -H "Authorization: Bearer $JIRA_PAT" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$(jq -n \
@@ -254,7 +260,7 @@ jobs:
           while read -r ticket; do
             [ -z "$ticket" ] && continue
 
-            RESPONSE=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            RESPONSE=$(curl -s -H "Authorization: Bearer $JIRA_PAT" \
               "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=status")
 
             STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name // "Unknown"')
@@ -281,7 +287,7 @@ jobs:
           while read -r ticket; do
             [ -z "$ticket" ] && continue
 
-            RESPONSE=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            RESPONSE=$(curl -s -H "Authorization: Bearer $JIRA_PAT" \
               "$JIRA_BASE_URL/rest/api/3/issue/$ticket?fields=issuetype,parent")
 
             TYPE=$(echo "$RESPONSE" | jq -r '.fields.issuetype.name')
@@ -293,7 +299,7 @@ jobs:
             EPIC_KEY=$(echo "$RESPONSE" | jq -r '.fields.parent.key // empty')
             [ -z "$EPIC_KEY" ] && continue
 
-            EPIC_RESPONSE=$(curl -s -u "$JIRA_EMAIL:$JIRA_API_TOKEN" \
+            EPIC_RESPONSE=$(curl -s -H "Authorization: Bearer $JIRA_PAT" \
               "$JIRA_BASE_URL/rest/api/3/issue/$EPIC_KEY?fields=summary,description")
 
             EPIC_SUMMARY=$(echo "$EPIC_RESPONSE" | jq -r '.fields.summary // ""')
