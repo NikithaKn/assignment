@@ -1,0 +1,55 @@
+name: Release Dashboard
+
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: "0 * * * *"  # every hour
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 🔥 Get releases
+      - name: Fetch releases
+        run: |
+          curl -s https://api.github.com/repos/${{ github.repository }}/releases > releases.json
+
+      # 🔥 Get commits
+      - name: Fetch commits
+        run: |
+          curl -s https://api.github.com/repos/${{ github.repository }}/commits > commits.json
+
+      # 🔥 Create dashboard data
+      - name: Generate data.json
+        run: |
+          RELEASE_COUNT=$(jq length releases.json)
+          COMMIT_COUNT=$(jq length commits.json)
+
+          echo "{
+            \"total_releases\": $RELEASE_COUNT,
+            \"total_commits\": $COMMIT_COUNT,
+            \"release_names\": [\"v1\",\"v2\",\"v3\"],
+            \"release_counts\": [1,1,1]
+          }" > data.json
+
+      # 🚀 Deploy
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy
+        uses: actions/deploy-pages@v4

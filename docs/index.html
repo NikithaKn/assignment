@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Release &amp; Deployment Dashboard</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #6366f1;
+    --green: #22c55e; --amber: #f59e0b; --slate: #64748b; --red: #ef4444; --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.5; }
+  header { background: linear-gradient(135deg, #1e293b, #312e81); padding: 28px 32px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0 0 4px; font-size: 24px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px 32px 64px; }
+
+  /* Release-line selector */
+  .line-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .line-bar label { color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .line-bar select { background: var(--panel); border: 1px solid var(--border); color: var(--text); font-size: 18px; font-weight: 600; padding: 8px 14px; border-radius: 10px; cursor: pointer; }
+  .line-bar .hint { color: var(--muted); font-size: 12.5px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .kpi .num { font-size: 28px; font-weight: 700; }
+  .kpi .lbl { color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi.risk .num { color: var(--red); }
+
+  /* Global overview */
+  .overview { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 24px; }
+  .overview h3 { margin: 0 0 12px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+
+  /* Charts */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .chart { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .chart h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .chart .cv { position: relative; height: 230px; }
+  .chart.wide { grid-column: 1 / -1; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; align-items: center; }
+  .controls input[type=text], .controls select { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 9px 12px; border-radius: 8px; font-size: 14px; }
+  .controls input[type=text] { flex: 1; min-width: 200px; }
+  .controls label.chk { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .count-note { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+
+  /* Release line (groups hotfix tags under one 26.7 line) */
+  .line { margin-bottom: 36px; }
+  .line-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 12px; }
+  .line-head h2 { margin: 0; font-size: 22px; }
+  .line-head .line-sub { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .line-cards { border-left: 2px solid var(--border); padding-left: 14px; }
+  .line .release-head h2 { font-size: 17px; }
+
+  .release { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 22px; overflow: hidden; }
+  .release-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 18px 22px; cursor: pointer; }
+  .release-head h2 { margin: 0; font-size: 20px; }
+  .release-head .branch { color: var(--muted); font-size: 13px; background: var(--panel2); padding: 3px 9px; border-radius: 20px; }
+  .release-head .cadence { color: var(--muted); font-size: 12px; }
+  .release-head .date { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .badge { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+  .badge.green { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge.amber { background: rgba(245,158,11,.15); color: var(--amber); }
+  .badge.slate { background: rgba(100,116,139,.2); color: var(--muted); }
+
+  .statusbar { display: flex; height: 8px; border-radius: 6px; overflow: hidden; margin: 0 22px 14px; background: var(--panel2); }
+  .seg-done { background: var(--green); } .seg-prog { background: var(--amber); } .seg-todo { background: var(--slate); }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 18px; padding: 0 22px 14px; font-size: 13px; color: var(--muted); }
+  .meta-row b { color: var(--text); } .meta-row .warn b { color: var(--amber); }
+
+  .epics { padding: 0 22px 14px; }
+  .epics .chip { display: inline-block; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: 13px; margin: 0 6px 6px 0; }
+  .epics .chip a { color: var(--accent); text-decoration: none; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  thead th { text-align: left; padding: 10px 14px; color: var(--muted); font-weight: 600; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--panel2); }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tbody tr:hover { background: var(--panel2); }
+  tbody tr.risk td:first-child { border-left: 3px solid var(--red); }
+  td a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .pill { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+  .st-done { background: rgba(34,197,94,.15); color: var(--green); }
+  .st-prog { background: rgba(245,158,11,.15); color: var(--amber); }
+  .st-todo { background: rgba(100,116,139,.2); color: var(--muted); }
+  .prio { font-size: 12px; color: var(--muted); }
+  .prio.hi { color: var(--red); font-weight: 600; }
+  .lab { display: inline-block; font-size: 10.5px; color: var(--muted); background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; margin: 3px 4px 0 0; }
+  .flag { font-size: 11px; color: var(--amber); border: 1px solid var(--amber); border-radius: 5px; padding: 1px 5px; margin-left: 6px; }
+  .unassigned { color: var(--muted); font-style: italic; }
+  .toolbar { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 22px; }
+  .btn { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 8px; font-size: 12.5px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .empty { padding: 14px 22px; color: var(--muted); }
+  .hidden { display: none; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 24px; }
+  .err { background: rgba(239,68,68,.12); border: 1px solid var(--red); color: #fecaca; padding: 16px; border-radius: 10px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>🚀 Release &amp; Deployment Dashboard</h1>
+  <p>Jira tickets grouped by release tag &amp; branch · <span id="generated">loading…</span></p>
+</header>
+
+<div class="wrap">
+  <div class="line-bar">
+    <label for="line-select">Release line</label>
+    <select id="line-select"></select>
+    <span class="hint">showing the hotfix tags for the selected release line</span>
+  </div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="charts" id="charts">
+    <div class="chart"><h3>Tickets by status</h3><div class="cv"><canvas id="c-status"></canvas></div></div>
+    <div class="chart"><h3>Tickets by priority</h3><div class="cv"><canvas id="c-priority"></canvas></div></div>
+    <div class="chart"><h3>Tickets by hotfix tag</h3><div class="cv"><canvas id="c-bytag"></canvas></div></div>
+    <div class="chart"><h3>Tickets by epic</h3><div class="cv"><canvas id="c-byepic"></canvas></div></div>
+    <div class="chart wide"><h3>Cumulative delivery across tags</h3><div class="cv"><canvas id="c-cumulative"></canvas></div></div>
+  </div>
+
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search key, title, assignee, epic, label…" />
+    <select id="status-filter"><option value="">All statuses</option></select>
+    <select id="assignee-filter"><option value="">All assignees</option></select>
+    <select id="epic-filter"><option value="">All epics</option></select>
+    <select id="priority-filter"><option value="">All priorities</option></select>
+    <label class="chk"><input id="carry-filter" type="checkbox" /> Carried-over only</label>
+    <button class="btn" id="reset">Reset</button>
+  </div>
+  <div class="count-note" id="count-note"></div>
+
+  <div id="releases"></div>
+</div>
+
+<footer>Auto-generated from <code>data/releases.json</code> · source: Jira <code>customfield_10104</code></footer>
+
+<script>
+const STATE = { data: null, selectedLine: null, filters: { q: "", status: "", assignee: "", epic: "", priority: "", carry: false } };
+const HI_PRIORITY = ["highest", "high"];
+
+const isDone = t => (t.statusCategory || "").toLowerCase() === "done";
+const isProg = t => (t.statusCategory || "").toLowerCase() === "indeterminate";
+const isHiOpen = t => HI_PRIORITY.includes((t.priority || "").toLowerCase()) && !isDone(t);
+
+function statusClass(t) { return isDone(t) ? "st-done" : isProg(t) ? "st-prog" : "st-todo"; }
+function fmtDate(iso) { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
+function daysBetween(a, b) { return Math.round((new Date(a) - new Date(b)) / 86400000); }
+function cmpVer(a, b) { const pa = a.split(".").map(n => parseInt(n) || 0), pb = b.split(".").map(n => parseInt(n) || 0); for (let i = 0; i < Math.max(pa.length, pb.length); i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); } return 0; }
+function esc(s) { return (s ?? "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function allTickets(d) { return d.releases.flatMap(r => r.tickets); }
+function lineKeyOf(r) { return r.branch || r.tag.replace(/\.[0-9]+$/, ".x"); }
+function linesOf(d) { return [...new Set(d.releases.map(lineKeyOf))].sort((a, b) => cmpVer(b, a)); }
+function currentReleases() { return STATE.data.releases.filter(r => lineKeyOf(r) === STATE.selectedLine); }
+function currentTickets() { return currentReleases().flatMap(r => r.tickets); }
+function resetFilters() {
+  ["search", "status-filter", "assignee-filter", "epic-filter", "priority-filter"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("carry-filter").checked = false;
+  STATE.filters = { q: "", status: "", assignee: "", epic: "", priority: "", carry: false };
+}
+function rerender() { renderKpis(STATE.data); renderCharts(); populateFilters(STATE.data); renderReleases(); }
+
+function renderKpis(d) {
+  const rels = currentReleases();
+  const all = currentTickets();
+  const done = all.filter(isDone).length;
+  const hiOpen = all.filter(isHiOpen).length;
+  const epics = new Set(rels.flatMap(r => (r.epics || []).map(e => e.epic))).size;
+  const pct = all.length ? Math.round((done / all.length) * 100) : 0;
+  const cards = [
+    ["Release Lines", linesOf(d).length, ""],
+    ["Tags", rels.length, ""],
+    ["Tickets", all.length, ""],
+    ["% Done", pct + "%", ""],
+    ["In Progress", all.filter(isProg).length, ""],
+    ["Unassigned", all.filter(t => t.assignee === "Unassigned").length, ""],
+    ["Epics", epics, ""],
+    ["High-Prio Open", hiOpen, hiOpen > 0 ? "risk" : ""],
+  ];
+  document.getElementById("kpis").innerHTML = cards.map(([l, n, cls]) =>
+    `<div class="kpi ${cls}"><div class="num">${n}</div><div class="lbl">${l}</div></div>`).join("");
+}
+
+const CHARTS = {};
+const C_STATUS = { done: "#22c55e", prog: "#f59e0b", todo: "#64748b" };
+const C_PRIO = { Highest: "#ef4444", High: "#f97316", Medium: "#3b82f6", Low: "#64748b", Lowest: "#475569" };
+const todoCount = t => !isDone(t) && !isProg(t);
+
+function renderCharts() {
+  const host = document.getElementById("charts");
+  if (typeof Chart === "undefined") { host.style.display = "none"; return; }  // CDN blocked → hide gracefully
+  host.style.display = "";
+  Object.values(CHARTS).forEach(c => c && c.destroy());
+
+  Chart.defaults.color = "#94a3b8";
+  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const grid = "#334155", border = "#1e293b";
+  const legendBottom = { plugins: { legend: { position: "bottom", labels: { boxWidth: 12, padding: 12 } } }, maintainAspectRatio: false };
+  const stacked = { maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { boxWidth: 12 } } } };
+
+  const rels = currentReleases();
+  const all = currentTickets();
+  const tags = [...rels].sort((a, b) => cmpVer(a.tag, b.tag)); // oldest → newest
+
+  // 1) Status doughnut (counts in labels)
+  const sDone = all.filter(isDone).length, sProg = all.filter(isProg).length, sTodo = all.filter(todoCount).length;
+  CHARTS.status = new Chart("c-status", {
+    type: "doughnut",
+    data: { labels: [`Done (${sDone})`, `In Progress (${sProg})`, `To Do (${sTodo})`],
+      datasets: [{ data: [sDone, sProg, sTodo], backgroundColor: [C_STATUS.done, C_STATUS.prog, C_STATUS.todo], borderColor: border, borderWidth: 2 }] },
+    options: { ...legendBottom, cutout: "60%" },
+  });
+
+  // 2) Priority doughnut
+  const prOrder = ["Highest", "High", "Medium", "Low", "Lowest"].filter(p => all.some(t => t.priority === p));
+  CHARTS.priority = new Chart("c-priority", {
+    type: "doughnut",
+    data: { labels: prOrder.map(p => `${p} (${all.filter(t => t.priority === p).length})`),
+      datasets: [{ data: prOrder.map(p => all.filter(t => t.priority === p).length), backgroundColor: prOrder.map(p => C_PRIO[p]), borderColor: border, borderWidth: 2 }] },
+    options: { ...legendBottom, cutout: "60%" },
+  });
+
+  // 3) Tickets by hotfix tag (stacked bar)
+  CHARTS.bytag = new Chart("c-bytag", {
+    type: "bar",
+    data: { labels: tags.map(r => r.tag), datasets: [
+      { label: "Done", data: tags.map(r => r.tickets.filter(isDone).length), backgroundColor: C_STATUS.done },
+      { label: "In Progress", data: tags.map(r => r.tickets.filter(isProg).length), backgroundColor: C_STATUS.prog },
+      { label: "To Do", data: tags.map(r => r.tickets.filter(todoCount).length), backgroundColor: C_STATUS.todo },
+    ] },
+    options: { ...stacked, scales: { x: { stacked: true, grid: { color: grid } }, y: { stacked: true, beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } } } },
+  });
+
+  // 4) Tickets by epic (stacked horizontal bar)
+  const epics = new Map();
+  all.forEach(t => {
+    const k = t.epic ? `${t.epic}` : "(no epic)";
+    const e = epics.get(k) || { done: 0, prog: 0, todo: 0 };
+    isDone(t) ? e.done++ : isProg(t) ? e.prog++ : e.todo++;
+    epics.set(k, e);
+  });
+  const ek = [...epics.keys()];
+  CHARTS.byepic = new Chart("c-byepic", {
+    type: "bar",
+    data: { labels: ek, datasets: [
+      { label: "Done", data: ek.map(k => epics.get(k).done), backgroundColor: C_STATUS.done },
+      { label: "In Progress", data: ek.map(k => epics.get(k).prog), backgroundColor: C_STATUS.prog },
+      { label: "To Do", data: ek.map(k => epics.get(k).todo), backgroundColor: C_STATUS.todo },
+    ] },
+    options: { ...stacked, indexAxis: "y", scales: { x: { stacked: true, beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } }, y: { stacked: true, grid: { color: grid } } } },
+  });
+
+  // 5) Cumulative delivery across tags (burn-up of DISTINCT tickets, oldest → newest)
+  const seen = new Set(), doneSeen = new Set(), cumAll = [], cumDone = [];
+  tags.forEach(r => {
+    r.tickets.forEach(t => { seen.add(t.id); if (isDone(t)) doneSeen.add(t.id); });
+    cumAll.push(seen.size); cumDone.push(doneSeen.size);
+  });
+  CHARTS.cumulative = new Chart("c-cumulative", {
+    type: "line",
+    data: { labels: tags.map(r => r.tag), datasets: [
+      { label: "Cumulative tickets", data: cumAll, borderColor: "#6366f1", backgroundColor: "rgba(99,102,241,.15)", fill: true, tension: .3, pointRadius: 4 },
+      { label: "Cumulative done", data: cumDone, borderColor: C_STATUS.done, backgroundColor: "rgba(34,197,94,.15)", fill: true, tension: .3, pointRadius: 4 },
+    ] },
+    options: { ...legendBottom, scales: { x: { grid: { color: grid } }, y: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } } } },
+  });
+}
+
+function populateFilters(d) {
+  const statuses = new Set(), assignees = new Set(), epics = new Map(), prios = new Set();
+  currentTickets().forEach(t => {
+    statuses.add(t.status); assignees.add(t.assignee); prios.add(t.priority);
+    if (t.epic) epics.set(t.epic, t.epicTitle || t.epic);
+  });
+  // reset each select to just its "All …" option before refilling (line may have changed)
+  const fill = (id, items) => { const sel = document.getElementById(id); sel.length = 1; items.forEach(([v, txt]) => { const o = document.createElement("option"); o.value = v; o.textContent = txt; sel.appendChild(o); }); };
+  fill("status-filter", [...statuses].sort().map(s => [s, s]));
+  fill("assignee-filter", [...assignees].sort().map(a => [a, a]));
+  fill("epic-filter", [...epics.entries()].map(([k, v]) => [k, `${k} · ${v}`]));
+  fill("priority-filter", [...prios].sort().map(p => [p, p]));
+}
+
+function ticketMatches(t) {
+  const f = STATE.filters;
+  if (f.status && t.status !== f.status) return false;
+  if (f.assignee && t.assignee !== f.assignee) return false;
+  if (f.epic && t.epic !== f.epic) return false;
+  if (f.priority && t.priority !== f.priority) return false;
+  if (f.carry && !t.carriedOver) return false;
+  if (f.q) {
+    const hay = `${t.id} ${t.summary} ${t.assignee} ${t.epic || ""} ${t.epicTitle || ""} ${(t.labels || []).join(" ")}`.toLowerCase();
+    if (!hay.includes(f.q.toLowerCase())) return false;
+  }
+  return true;
+}
+
+function renderReleases() {
+  const d = STATE.data;
+  const host = document.getElementById("releases");
+  host.innerHTML = "";
+  let shown = 0, totalAll = 0;
+
+  // Group releases by their release line (branch) so hotfix tags nest and grow under one line
+  const groups = new Map();
+  d.releases.forEach(r => {
+    const k = r.branch || r.tag.replace(/\.[0-9]+$/, ".x");
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+  // Only the selected release line is shown (default: latest)
+  const orderedLines = [STATE.selectedLine].filter(b => groups.has(b));
+
+  orderedLines.forEach(branch => {
+    const rels = groups.get(branch); // already in desc tag order from the data
+    const lineTk = rels.flatMap(r => r.tickets);
+    const lTotal = rels.reduce((a, r) => a + (r.ticket_count || r.tickets.length), 0);
+    const lDone = rels.reduce((a, r) => a + (r.tickets_done || 0), 0);
+    const lPct = lTotal ? Math.round(lDone / lTotal * 100) : 0;
+    let lD = 0, lP = 0, lT = 0; lineTk.forEach(t => isDone(t) ? lD++ : isProg(t) ? lP++ : lT++);
+    const lSeg = (n, cls) => lTotal ? `<span class="${cls}" style="width:${n / lTotal * 100}%"></span>` : "";
+
+    const group = document.createElement("div");
+    group.className = "line";
+    group.id = "line-" + branch;
+    group.innerHTML = `
+      <div class="line-head">
+        <h2>Release ${esc(branch.replace(/\.x$/, ""))}</h2>
+        <span class="branch">${esc(branch)}</span>
+        <span class="badge ${lPct === 100 ? "green" : lPct > 0 ? "amber" : "slate"}">${lDone}/${lTotal} done · ${lPct}%</span>
+        <span class="line-sub">${rels.length} tag${rels.length > 1 ? "s" : ""} · ${lTotal} tickets</span>
+      </div>
+      <div class="statusbar" style="margin:0 0 14px">${lSeg(lD, "seg-done")}${lSeg(lP, "seg-prog")}${lSeg(lT, "seg-todo")}</div>
+      <div class="line-cards"></div>`;
+    const cardHost = group.querySelector(".line-cards");
+
+    rels.forEach((r, idx) => {
+    const tickets = r.tickets.filter(ticketMatches);
+    shown += tickets.length; totalAll += r.tickets.length;
+    const s = r.summary || {};
+    const done = r.tickets_done || 0, total = r.ticket_count || r.tickets.length || 0;
+    let cDone = 0, cProg = 0, cTodo = 0;
+    r.tickets.forEach(t => { isDone(t) ? cDone++ : isProg(t) ? cProg++ : cTodo++; });
+    const hiOpen = r.tickets.filter(isHiOpen).length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const badgeClass = pct === 100 ? "green" : pct > 0 ? "amber" : "slate";
+    const seg = (n, cls) => total ? `<span class="${cls}" style="width:${(n / total) * 100}%"></span>` : "";
+
+    // cadence: days since the previous (older) tag within this release line
+    const prev = rels[idx + 1];
+    const cadence = prev ? `+${daysBetween(r.date, prev.date)}d since ${esc(prev.tag)}` : "initial cut";
+
+    const epicsHtml = (r.epics || []).length
+      ? `<div class="epics">${r.epics.map(e => `<span class="chip"><a href="${esc(d._base)}/browse/${esc(e.epic)}" target="_blank">${esc(e.epic)}</a> · ${esc(e.title)}</span>`).join("")}</div>` : "";
+
+    const rows = tickets.length ? tickets.map(t => {
+      const labels = (t.labels || []).map(l => `<span class="lab">${esc(l)}</span>`).join("");
+      const hiCls = HI_PRIORITY.includes((t.priority || "").toLowerCase()) ? "hi" : "";
+      return `<tr class="${isHiOpen(t) ? "risk" : ""}">
+        <td><a href="${esc(t.link)}" target="_blank">${esc(t.id)}</a></td>
+        <td>${esc(t.summary)}${t.carriedOver ? '<span class="flag">carried over</span>' : ""}<div>${labels}</div></td>
+        <td>${esc(t.type)}</td>
+        <td class="prio ${hiCls}">${esc(t.priority)}</td>
+        <td><span class="pill ${statusClass(t)}">${esc(t.status)}</span></td>
+        <td class="${t.assignee === "Unassigned" ? "unassigned" : ""}">${esc(t.assignee)}</td>
+        <td>${t.epic ? `<a href="${esc(d._base)}/browse/${esc(t.epic)}" target="_blank" title="${esc(t.epicTitle)}">${esc(t.epic)}</a>` : "—"}</td>
+        <td class="prio">${fmtDate(t.updated)}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="8" class="empty">No tickets match the current filters.</td></tr>`;
+
+    const card = document.createElement("div");
+    card.className = "release";
+    card.id = "rel-" + r.tag;
+    card.innerHTML = `
+      <div class="release-head" data-toggle>
+        <h2>${esc(r.tag)}</h2>
+        <span class="branch">${esc(r.branch)}</span>
+        <span class="cadence">${cadence}</span>
+        <span class="badge ${badgeClass}">${done}/${total} done · ${pct}%</span>
+        <span class="date">${fmtDate(r.date)}</span>
+      </div>
+      <div class="statusbar">${seg(cDone, "seg-done")}${seg(cProg, "seg-prog")}${seg(cTodo, "seg-todo")}</div>
+      <div class="meta-row">
+        <span><b>${cTodo}</b> to do</span><span><b>${cProg}</b> in progress</span><span><b>${cDone}</b> done</span>
+        <span><b>${s.unassigned ?? 0}</b> unassigned</span>
+        <span class="warn"><b>${s.carriedOver ?? 0}</b> carried over</span>
+        <span class="warn"><b>${hiOpen}</b> high-prio open</span>
+        <span><b>${(s.assignees || []).length}</b> contributors</span>
+      </div>
+      ${epicsHtml}
+      <div class="body">
+        <table>
+          <thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Epic</th><th>Updated</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="toolbar">
+          <button class="btn" data-md="${esc(r.tag)}">📋 Copy release notes</button>
+          <button class="btn" data-csv="${esc(r.tag)}">⬇ Export CSV</button>
+        </div>
+      </div>`;
+      cardHost.appendChild(card);
+    });
+    host.appendChild(group);
+  });
+
+  const f = STATE.filters;
+  const filtering = f.q || f.status || f.assignee || f.epic || f.priority || f.carry;
+  const tagCount = groups.get(STATE.selectedLine)?.length || 0;
+  document.getElementById("count-note").textContent = filtering
+    ? `Showing ${shown} of ${totalAll} tickets in ${STATE.selectedLine}`
+    : `${totalAll} tickets across ${tagCount} hotfix tag(s) in release ${STATE.selectedLine}`;
+
+  host.querySelectorAll("[data-toggle]").forEach(h => h.addEventListener("click", () => h.parentElement.querySelector(".body")?.classList.toggle("hidden")));
+  host.querySelectorAll("[data-csv]").forEach(b => b.addEventListener("click", () => exportCsv(b.getAttribute("data-csv"))));
+  host.querySelectorAll("[data-md]").forEach(b => b.addEventListener("click", () => copyNotes(b.getAttribute("data-md"), b)));
+
+  if (location.hash) document.getElementById("rel-" + location.hash.slice(1))?.scrollIntoView();
+}
+
+function exportCsv(tag) {
+  const r = STATE.data.releases.find(x => x.tag === tag); if (!r) return;
+  const head = ["Key", "Title", "Type", "Priority", "Status", "Assignee", "Epic", "EpicTitle", "Reporter", "Labels", "Created", "Updated", "Resolved", "CarriedOver", "Link"];
+  const rows = r.tickets.map(t => [t.id, t.summary, t.type, t.priority, t.status, t.assignee, t.epic || "", t.epicTitle || "", t.reporter, (t.labels || []).join("|"), t.created, t.updated, t.resolved || "", t.carriedOver, t.link]);
+  const csv = [head, ...rows].map(row => row.map(c => `"${(c ?? "").toString().replace(/"/g, '""')}"`).join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = `release-${tag}-tickets.csv`; a.click();
+}
+
+function copyNotes(tag, btn) {
+  const r = STATE.data.releases.find(x => x.tag === tag); if (!r) return;
+  let md = `## Release ${r.tag} (${r.branch}) — ${fmtDate(r.date)}\n`;
+  md += `**${r.ticket_count} tickets · ${r.tickets_done} done**\n\n`;
+  if ((r.epics || []).length) md += `### Epics\n` + r.epics.map(e => `- ${e.epic}: ${e.title}`).join("\n") + `\n\n`;
+  md += `### Tickets\n` + r.tickets.map(t => `- [${t.id}](${t.link}) ${t.summary} — _${t.status}_ (${t.assignee})${t.carriedOver ? " ⟳ carried over" : ""}`).join("\n") + "\n";
+  navigator.clipboard.writeText(md).then(() => { const o = btn.textContent; btn.textContent = "✓ Copied"; setTimeout(() => btn.textContent = o, 1500); });
+}
+
+function bindControls() {
+  const apply = () => {
+    STATE.filters = {
+      q: document.getElementById("search").value,
+      status: document.getElementById("status-filter").value,
+      assignee: document.getElementById("assignee-filter").value,
+      epic: document.getElementById("epic-filter").value,
+      priority: document.getElementById("priority-filter").value,
+      carry: document.getElementById("carry-filter").checked,
+    };
+    renderReleases();
+  };
+  ["search", "status-filter", "assignee-filter", "epic-filter", "priority-filter", "carry-filter"].forEach(id =>
+    document.getElementById(id).addEventListener("input", apply));
+  document.getElementById("reset").addEventListener("click", () => { resetFilters(); renderReleases(); });
+
+  // Release-line selector: switching lines resets filters and re-renders everything for that line
+  const sel = document.getElementById("line-select");
+  sel.addEventListener("change", () => {
+    STATE.selectedLine = sel.value;
+    location.hash = STATE.selectedLine;
+    resetFilters();
+    rerender();
+  });
+}
+
+async function main() {
+  try {
+    const res = await fetch("data/releases.json", { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const d = await res.json();
+    // Normalize: tolerate legacy/partial entries (e.g. a release where tickets/epics
+    // isn't an array) so the dashboard degrades gracefully instead of crashing.
+    d.releases = (d.releases || []).map(r => ({
+      ...r,
+      tickets: Array.isArray(r.tickets) ? r.tickets : [],
+      epics: Array.isArray(r.epics) ? r.epics : [],
+    }));
+    d._base = (d.releases.find(r => r.tickets[0])?.tickets[0]?.link || "").replace(/\/browse\/.*$/, "");
+    STATE.data = d;
+    document.getElementById("generated").textContent = "updated " + fmtDate(d.generatedAt);
+
+    // Populate the release-line dropdown (newest first) and default to the latest line.
+    // A #<branch> hash overrides the default so lines are shareable/deep-linkable.
+    const lines = linesOf(d);
+    const sel = document.getElementById("line-select");
+    sel.innerHTML = lines.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join("");
+    const hash = decodeURIComponent(location.hash.slice(1));
+    STATE.selectedLine = lines.includes(hash) ? hash : lines[0];
+    sel.value = STATE.selectedLine;
+
+    bindControls();
+    rerender();
+  } catch (e) {
+    document.querySelector(".wrap").innerHTML =
+      `<div class="err"><b>Could not load or render the dashboard</b><br>${esc(e.message)}<br>
+       If this is a fetch error, serve this folder over HTTP (e.g. <code>python3 -m http.server</code>) — opening the file directly blocks fetch.</div>`;
+  }
+}
+main();
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ export class ChartComponent implements OnInit {
     { data: [100, 200, 300, 400, 500], label: 'Power Generation' },
   ];
 
+  // KAN-5: Added comments for second ticket changes
   lineChartLabels: Label[] = ['January', 'February', 'March', 'April', 'May', 'June'];
 
   constructor() { }
