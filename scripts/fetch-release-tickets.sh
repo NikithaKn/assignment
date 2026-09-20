@@ -9,14 +9,14 @@
 #      during the freeze window are reflected at cut time.
 #
 # Usage: scripts/fetch-release-tickets.sh <TAG> [PREV_TAG]
-# Env:   JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN
+# Env:   JIRA_BASE_URL, JIRA_EMAIL
 #
 set -euo pipefail
 
 TAG="${1:?usage: fetch-release-tickets.sh <TAG> [PREV_TAG]}"
 PREV="${2:-}"
 
-AUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
+AUTH_HEADER="Authorization: Bearer $JIRA_PAT"
 ENDPOINT="$JIRA_BASE_URL/rest/api/3/search/jql"
 JQL="cf[10104] = \"$TAG\""
 
@@ -27,17 +27,20 @@ echo "JQL      : $JQL"
 # A bad/empty Basic-auth header makes Jira fall back to ANONYMOUS: /myself 401s,
 # while search returns HTTP 200 with 0 issues (looks exactly like "no tickets /
 # index lag"). Catch it here instead of silently producing an empty release.
-WHO_RESP=$(curl -s -w $'\n%{http_code}' -H "Authorization: Basic $AUTH" -H "Accept: application/json" "$JIRA_BASE_URL/rest/api/3/myself")
+WHO_RESP=$(curl -s -w $'\n%{http_code}' \
+  -H "$AUTH_HEADER" \
+  -H "Accept: application/json" \
+  "$JIRA_BASE_URL/rest/api/3/myself")
 WHO_CODE=$(printf '%s' "$WHO_RESP" | tail -n1)
 WHO=$(printf '%s' "$WHO_RESP" | sed '$d')
 ACCT=$(echo "$WHO" | jq -r '.accountId // empty' 2>/dev/null || true)
 echo "Auth as  : $(echo "$WHO" | jq -r '.displayName + " <" + (.emailAddress // "n/a") + "> " + .accountId' 2>/dev/null || echo "UNKNOWN")"
 echo "Site     : $(echo "$WHO" | jq -r '.self // empty' 2>/dev/null | sed -E 's#/rest/.*##')"
 if [ "$WHO_CODE" != "200" ] || [ -z "$ACCT" ]; then
-  echo "❌ JIRA_EMAIL/JIRA_API_TOKEN did NOT authenticate (/myself HTTP $WHO_CODE)."
+  echo "❌ JIRA_PAT did NOT authenticate (/myself HTTP $WHO_CODE)."
   echo "   Bad/empty/whitespace creds make Jira fall back to ANONYMOUS: search returns HTTP 200"
   echo "   with 0 results and no error — the exact '0 tickets' symptom. This is NOT indexing lag."
-  echo "   → Fix JIRA_EMAIL / JIRA_API_TOKEN (no trailing newline/space) and JIRA_BASE_URL."
+  echo "   → Fix JIRA_PAT (no trailing newline/space) and JIRA_BASE_URL."
   exit 1
 fi
 
@@ -45,7 +48,7 @@ fi
 ATTEMPTS=6; SLEEP=10; : > cf_ids.txt
 for i in $(seq 1 "$ATTEMPTS"); do
   RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST \
-    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+    -H "$AUTH_HEADER" -H "Content-Type: application/json" -H "Accept: application/json" \
     -d "$(jq -n --arg jql "$JQL" '{jql:$jql, fields:["key"], maxResults:100}')" "$ENDPOINT")
   CODE=$(printf '%s' "$RESP" | tail -n1)
   BODY=$(printf '%s' "$RESP" | sed '$d')
@@ -64,7 +67,7 @@ echo "Tagged (cf[10104]) tickets: $(grep -c . cf_ids.txt || true)"
 if [ ! -s cf_ids.txt ]; then
   echo "⚠️  0 tagged tickets for \"$TAG\" after $ATTEMPTS attempts (commit-derived IDs may still apply)."
   echo "🔍 Most-recent cf[10104] values (spot value/typo mismatches):"
-  curl -s --http1.1 -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+  curl -s --http1.1 -X POST -H "$AUTH_HEADER" -H "Content-Type: application/json" -H "Accept: application/json" \
     -d "$(jq -n '{jql:"order by created DESC", fields:["key","customfield_10104"], maxResults:20}')" "$ENDPOINT" \
     | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' || true
 fi
@@ -86,7 +89,7 @@ if [ ! -s jira_ids.txt ]; then
 else
   KEYS_CSV=$(paste -sd, jira_ids.txt)
   echo "Bulk fetch: key in ($KEYS_CSV)"
-  RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+  RESP=$(curl -s -w $'\n%{http_code}' --http1.1 -X POST -H "$AUTH_HEADER" -H "Content-Type: application/json" -H "Accept: application/json" \
     -d "$(jq -n --arg jql "key in ($KEYS_CSV)" '{jql:$jql, fields:["summary","status","assignee","priority","issuetype","parent"], maxResults:100}')" \
     "$ENDPOINT")
   CODE=$(printf '%s' "$RESP" | tail -n1); printf '%s' "$RESP" | sed '$d' > raw.json

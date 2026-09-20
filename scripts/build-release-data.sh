@@ -17,8 +17,7 @@ set -euo pipefail
 # falls back to the hardcoded POC values for local runs. POC token only.
 # ─────────────────────────────────────────────────────────────────────
 JIRA_BASE_URL="${JIRA_BASE_URL}"
-JIRA_EMAIL="${JIRA_EMAIL}"
-JIRA_API_TOKEN="${JIRA_API_TOKEN}"
+JIRA_PAT="${JIRA_PAT}"
 
 TAG="${1:-26.7.0}"
 CUSTOM_FIELD="customfield_10104"
@@ -53,7 +52,7 @@ echo "  Branch : $BRANCH"
 echo "========================================="
 
 # macOS base64 has no -w; strip newlines so the auth header is never corrupted.
-AUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
+JIRA_AUTH_HEADER="Authorization: Bearer ${JIRA_PAT}"
 
 ENDPOINT="$JIRA_BASE_URL/rest/api/3/search/jql"
 JQL="cf[10104] = \"$TAG\""
@@ -82,7 +81,7 @@ while true; do
   fi
 
   HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST --http1.1 \
-    -H "Authorization: Basic $AUTH" \
+    -H "$JIRA_AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "$REQUEST_BODY" \
@@ -128,7 +127,7 @@ if [ "$COMMITS_TRACKED" = "true" ]; then
   if [ "$COMMIT_ONLY_COUNT" -gt 0 ]; then
     KEYS_CSV=$(echo "$COMMIT_ONLY_JSON" | jq -r 'join(",")')
     CO_RESP=$(curl -s -X POST --http1.1 \
-      -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+      -H "$JIRA_AUTH_HEADER" -H "Content-Type: application/json" -H "Accept: application/json" \
       -d "$(jq -n --arg jql "key in ($KEYS_CSV)" --argjson fields "$FIELDS" '{jql:$jql, fields:$fields, maxResults:100}')" \
       "$ENDPOINT")
     if echo "$CO_RESP" | jq -e 'has("issues")' >/dev/null 2>&1; then
@@ -149,7 +148,7 @@ if [ "$TICKET_COUNT" -eq 0 ]; then
   echo "⚠️  No tickets matched cf[10104] = \"$TAG\"."
   echo "🔍 Recent cf[10104] values (to spot a value/typo mismatch):"
   curl -s -X POST --http1.1 \
-    -H "Authorization: Basic $AUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+    -H "$JIRA_AUTH_HEADER" -H "Content-Type: application/json" -H "Accept: application/json" \
     -d "$(jq -n '{jql:"order by created DESC", fields:["key","customfield_10104"], maxResults:20}')" \
     "$ENDPOINT" 2>/dev/null \
     | jq -r '.issues[]? | "  \(.key)  cf[10104]=\(.fields.customfield_10104 // "(null)")"' 2>/dev/null \
