@@ -7,10 +7,6 @@ on:
         description: 'Sprint/release branch (e.g. 26.7.x)'
         required: true
         type: string
-      jira_pat:
-        description: 'Jira Personal Access Token (Bearer auth). WARNING: manual dispatch inputs are NOT masked — this value will be visible in plaintext in this run''s Inputs panel and re-run history to anyone with read access to Actions on this repo.'
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -21,17 +17,13 @@ jobs:
 
     env:
       JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-      JIRA_PAT: ${{ github.event.inputs.jira_pat }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
       CONFLUENCE_EMAIL: ${{ secrets.CONFLUENCE_EMAIL }}
       CONFLUENCE_API_TOKEN: ${{ secrets.CONFLUENCE_API_TOKEN }}
 
     steps:
-      # ✅ Redact the PAT from log output for the rest of the job (does not hide it
-      #    from this run's Inputs panel — manual workflow_dispatch inputs are never masked there).
-      - name: Mask Jira PAT in logs
-        run: echo "::add-mask::${{ github.event.inputs.jira_pat }}"
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
