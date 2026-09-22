@@ -18,7 +18,8 @@ set -euo pipefail
 
 # ── Jira (POC) ─────────────────────────────────────────────────────────────
 JIRA_BASE_URL="${JIRA_BASE_URL}"
-JIRA_PAT="${JIRA_PAT}"
+JIRA_EMAIL="${JIRA_EMAIL}"
+JIRA_API_TOKEN="${JIRA_API_TOKEN}"
 
 # ── Confluence ─────────────────────────────────────────────────────────────
 CONFLUENCE_BASE_URL="${CONFLUENCE_BASE_URL}"
@@ -35,7 +36,7 @@ DASH_LINK="${DASHBOARD_BASE}/#${BRANCH}"
 DATE_UTC=$(date -u +"%Y-%m-%d %H:%MZ")
 PROV="${PROV:-Generated $DATE_UTC by confluence-publish.sh}"
 
-JAUTH="Authorization: Bearer ${JIRA_PAT}"
+JAUTH=$(printf '%s' "$JIRA_EMAIL:$JIRA_API_TOKEN" | base64 | tr -d '\n')
 JIRA_SEARCH="$JIRA_BASE_URL/rest/api/3/search/jql"
 C_API="$CONFLUENCE_BASE_URL/wiki/rest/api/content"
 cauth=(-u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN")
@@ -45,7 +46,7 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 echo "=== Confluence release notes — $TAG → \"$PAGE_TITLE\" (space $SPACE_KEY) ==="
 
 # ── 1. Tagged (cf[10104]) keys + optional commit keys → union ──────────────
-curl -s -X POST -H "$JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+curl -s -X POST -H "Authorization: Basic $JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
   -d "$(jq -n --arg jql "cf[10104] = \"$TAG\"" '{jql:$jql, fields:["key"], maxResults:1000}')" \
   "$JIRA_SEARCH" | jq -r '.issues[].key' > "$WORK/cf.txt"
 printf '%s\n' "${COMMIT_IDS:-}" | grep -oiE '[A-Za-z]+-[0-9]+' | tr 'a-z' 'A-Z' | sort -u > "$WORK/commit.txt" || true
@@ -59,7 +60,7 @@ fi
 
 # ── 2. Bulk-fetch enriched fields for the union ─────────────────────────────
 KEYS_CSV=$(paste -sd, "$WORK/union.txt")
-curl -s -X POST -H "$JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
+curl -s -X POST -H "Authorization: Basic $JAUTH" -H "Content-Type: application/json" -H "Accept: application/json" \
   -d "$(jq -n --arg jql "key in ($KEYS_CSV)" '{jql:$jql, fields:["summary","status","assignee","priority","issuetype","parent"], maxResults:1000}')" \
   "$JIRA_SEARCH" > "$WORK/raw.json"
 
