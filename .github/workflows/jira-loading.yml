@@ -28,6 +28,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ✅ Normalize branch input — going forward the dispatch input may arrive as
+      #    "ABC-26.7.x" (Jira project-key prefix + line). That "ABC-" prefix is only ever
+      #    used below to build the Jira fixVersion lookup; every git/tag/Confluence/
+      #    dashboard step keeps operating on the plain numeric branch, exactly as before.
+      - name: Normalize branch input
+        id: branch
+        run: |
+          RAW="${{ github.event.inputs.sprint_branch }}"
+          CLEAN="${RAW#ABC-}"
+          echo "clean_branch=${CLEAN}" >> "$GITHUB_OUTPUT"
+
       # ✅ Stage CI scripts from the default branch BEFORE we switch the working tree to the
       #    sprint branch (which was cut earlier and may not contain these scripts).
       - name: Stage CI scripts
@@ -41,13 +52,13 @@ jobs:
       - name: Checkout sprint branch
         run: |
           git fetch origin
-          git checkout -B "${{ github.event.inputs.sprint_branch }}" "origin/${{ github.event.inputs.sprint_branch }}"
+          git checkout -B "${{ steps.branch.outputs.clean_branch }}" "origin/${{ steps.branch.outputs.clean_branch }}"
 
       # ✅ Generate tag
       - name: Generate tag
         id: tag
         run: |
-          PREFIX=$(echo "${{ github.event.inputs.sprint_branch }}" | sed 's/\.x$//')
+          PREFIX=$(echo "${{ steps.branch.outputs.clean_branch }}" | sed 's/\.x$//')
           LAST_TAG=$(git tag --list "${PREFIX}.*" --sort=-v:refname | head -n 1)
 
           if [ -z "$LAST_TAG" ]; then
@@ -63,10 +74,15 @@ jobs:
           if [ "$NEXT" -gt 0 ]; then PREV="${PREFIX}.$((NEXT - 1))"; else PREV=""; fi
           echo "prev_tag=${PREV}" >> "$GITHUB_OUTPUT"
 
+          # Jira fixVersion is shared per release LINE, not per patch tag, and uses the
+          # Jira project key ("XYZ-") rather than the branch's project-key prefix — e.g.
+          # line "26.7" -> fixVersion "XYZ-26.7", reused across every 26.7.x hotfix.
+          echo "fix_version=XYZ-${PREFIX}" >> "$GITHUB_OUTPUT"
+
       # ✅ Fetch + classify tickets (INITIAL snapshot, before the freeze notice)
       #    so the notification can list the open work the team must close before the cut.
       - name: Fetch release tickets (initial)
-        run: bash "$RUNNER_TEMP/ci/fetch-release-tickets.sh" "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
+        run: bash "$RUNNER_TEMP/ci/fetch-release-tickets.sh" "${{ steps.tag.outputs.fix_version }}" "${{ steps.tag.outputs.prev_tag }}"
 
       # ✅ Notify Release Freeze Window Started — lists open work + assignees (anything not
       #    in a "done" status) as a FactSet so the team can finish/merge before the cut.
@@ -80,7 +96,7 @@ jobs:
 
           jq -n \
             --arg tag "$TAG_NAME" \
-            --arg branch "${{ github.event.inputs.sprint_branch }}" \
+            --arg branch "${{ steps.branch.outputs.clean_branch }}" \
             --arg run "$RUN_URL" \
             --slurpfile t tickets.json \
             '($t[0] // []) as $all
@@ -134,7 +150,7 @@ jobs:
           while true
           do
             COUNT=$(gh pr list \
-              --base "${{ github.event.inputs.sprint_branch }}" \
+              --base "${{ steps.branch.outputs.clean_branch }}" \
               --state open \
               --json number,title \
               --jq 'length')
@@ -150,7 +166,7 @@ jobs:
 
             jq -n \
               --arg count "$COUNT" \
-              --arg branch "${{ github.event.inputs.sprint_branch }}" \
+              --arg branch "${{ steps.branch.outputs.clean_branch }}" \
               '{
                 type: "message",
                 attachments: [
@@ -197,13 +213,13 @@ jobs:
       - name: Refresh sprint branch
         run: |
           git fetch origin
-          git checkout "${{ github.event.inputs.sprint_branch }}"
-          git reset --hard "origin/${{ github.event.inputs.sprint_branch }}"
+          git checkout "${{ steps.branch.outputs.clean_branch }}"
+          git reset --hard "origin/${{ steps.branch.outputs.clean_branch }}"
 
       # ✅ Re-fetch + reclassify right before publishing, so any status / assignee / PR
       #    changes during the freeze window are reflected in Confluence and the dashboard.
       - name: Fetch release tickets (final, pre-publish)
-        run: bash "$RUNNER_TEMP/ci/fetch-release-tickets.sh" "${{ steps.tag.outputs.new_tag }}" "${{ steps.tag.outputs.prev_tag }}"
+        run: bash "$RUNNER_TEMP/ci/fetch-release-tickets.sh" "${{ steps.tag.outputs.fix_version }}" "${{ steps.tag.outputs.prev_tag }}"
 
       # ✅ Update Confluence — resolve the per-line page by TITLE, update or create
       #    Release line = sprint branch minus the trailing segment (26.7.x -> 26.7).
@@ -215,7 +231,7 @@ jobs:
           SPACE_KEY="REL"                                   # constant Release Notes space
           TAG="${{ steps.tag.outputs.new_tag }}"
           PREV="${{ steps.tag.outputs.prev_tag }}"
-          LINE=$(echo "${{ github.event.inputs.sprint_branch }}" | sed -E 's/\.[^.]*$//')
+          LINE=$(echo "${{ steps.branch.outputs.clean_branch }}" | sed -E 's/\.[^.]*$//')
           BRANCH="${LINE}.x"
           PAGE_TITLE="Release Notes - $LINE"
           DATE_UTC=$(date -u +"%Y-%m-%d %H:%MZ")
